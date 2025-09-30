@@ -49,7 +49,7 @@ do
 		stroke.Color = color3FromRGB(255, 255, 255)
 		stroke.Parent = box
 		
-		-- Создаем outline (второй Frame с UIStroke)
+		-- Создаем outline (внешняя обводка)
 		local outlineFrame = instanceNew("Frame")
 		outlineFrame.Name = "OutlineFrame"
 		outlineFrame.BackgroundTransparency = 1
@@ -63,13 +63,29 @@ do
 		outlineStroke.Color = color3FromRGB(0, 0, 0)
 		outlineStroke.Parent = outlineFrame
 		
+		-- Создаем inline (внутренняя обводка)
+		local inlineFrame = instanceNew("Frame")
+		inlineFrame.Name = "InlineFrame"
+		inlineFrame.BackgroundTransparency = 1
+		inlineFrame.Size = udim2New(1, -2, 1, -2)
+		inlineFrame.Position = udim2New(0, 1, 0, 1)
+		inlineFrame.Parent = billboard
+		
+		local inlineStroke = instanceNew("UIStroke")
+		inlineStroke.Name = "InlineStroke"
+		inlineStroke.Thickness = 0.9
+		inlineStroke.Color = color3FromRGB(0, 0, 0)
+		inlineStroke.Parent = inlineFrame
+		
 		return {
 			player = player,
 			billboard = billboard,
 			box = box,
 			stroke = stroke,
 			outlineFrame = outlineFrame,
-			outlineStroke = outlineStroke
+			outlineStroke = outlineStroke,
+			inlineFrame = inlineFrame,
+			inlineStroke = inlineStroke
 		}
 	end
 	
@@ -185,11 +201,16 @@ do
 				Default = true,
 				Flag = "Box_Outline_Enabled",
 				Callback = function(value)
-					-- Обновляем видимость outline для всех существующих ESP
+					-- Обновляем видимость outline и inline для всех существующих ESP
 					for _, player in pairs(players:GetPlayers()) do
 						local espData = framework:getESP(player)
-						if espData and espData.outlineFrame then
-							espData.outlineFrame.Visible = value
+						if espData then
+							if espData.outlineFrame then
+								espData.outlineFrame.Visible = value
+							end
+							if espData.inlineFrame then
+								espData.inlineFrame.Visible = value
+							end
 						end
 					end
 				end
@@ -200,11 +221,16 @@ do
 				Default = color3FromRGB(0, 0, 0),
 				Flag = "Box_Outline_Color",
 				Callback = function(color)
-					-- Обновляем цвет outline для всех существующих ESP
+					-- Обновляем цвет outline и inline для всех существующих ESP
 					for _, player in pairs(players:GetPlayers()) do
 						local espData = framework:getESP(player)
-						if espData and espData.outlineStroke then
-							espData.outlineStroke.Color = color
+						if espData then
+							if espData.outlineStroke then
+								espData.outlineStroke.Color = color
+							end
+							if espData.inlineStroke then
+								espData.inlineStroke.Color = color
+							end
 						end
 					end
 				end
@@ -371,12 +397,14 @@ do
 							if Library.Flags["Box_Color"] then
 								espData.stroke.Color = Library.Flags["Box_Color"].Color
 							end
-							-- Устанавливаем цвет и видимость outline
+							-- Устанавливаем цвет и видимость outline и inline
 							if Library.Flags["Box_Outline_Color"] then
 								espData.outlineStroke.Color = Library.Flags["Box_Outline_Color"].Color
+								espData.inlineStroke.Color = Library.Flags["Box_Outline_Color"].Color
 							end
 							if Library.Flags["Box_Outline_Enabled"] ~= nil then
 								espData.outlineFrame.Visible = Library.Flags["Box_Outline_Enabled"]
+								espData.inlineFrame.Visible = Library.Flags["Box_Outline_Enabled"]
 							end
 						end
 					end
@@ -402,12 +430,14 @@ do
 							if Library.Flags["Box_Color"] then
 								espData.stroke.Color = Library.Flags["Box_Color"].Color
 							end
-							-- Устанавливаем цвет и видимость outline
+							-- Устанавливаем цвет и видимость outline и inline
 							if Library.Flags["Box_Outline_Color"] then
 								espData.outlineStroke.Color = Library.Flags["Box_Outline_Color"].Color
+								espData.inlineStroke.Color = Library.Flags["Box_Outline_Color"].Color
 							end
 							if Library.Flags["Box_Outline_Enabled"] ~= nil then
 								espData.outlineFrame.Visible = Library.Flags["Box_Outline_Enabled"]
+								espData.inlineFrame.Visible = Library.Flags["Box_Outline_Enabled"]
 							end
 						end
 					end
