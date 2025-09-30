@@ -45,9 +45,21 @@ do
 		-- Создаем UIStroke для обводки
 		local stroke = instanceNew("UIStroke")
 		stroke.Name = "Stroke"
-		stroke.Thickness = 1
+		stroke.Thickness = 1.1
 		stroke.Color = color3FromRGB(255, 255, 255)
 		stroke.Parent = box
+		
+		-- Создаем UIGradient для градиента бокса
+		local gradient = instanceNew("UIGradient")
+		gradient.Name = "Gradient"
+		gradient.Rotation = 90
+		gradient.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, color3FromRGB(255, 255, 255)),
+			ColorSequenceKeypoint.new(0.33, color3FromRGB(255, 255, 255)),
+			ColorSequenceKeypoint.new(0.66, color3FromRGB(255, 255, 255)),
+			ColorSequenceKeypoint.new(1, color3FromRGB(255, 255, 255))
+		})
+		gradient.Parent = stroke
 		
 		-- Создаем outline (внешняя обводка)
 		local outlineFrame = instanceNew("Frame")
@@ -77,15 +89,29 @@ do
 		inlineStroke.Color = color3FromRGB(0, 0, 0)
 		inlineStroke.Parent = inlineFrame
 		
+		-- Создаем filled (фон бокса)
+		local filledFrame = instanceNew("Frame")
+		filledFrame.Name = "FilledFrame"
+		filledFrame.BackgroundTransparency = 0.5
+		filledFrame.BackgroundColor3 = color3FromRGB(255, 255, 255)
+		filledFrame.BorderSizePixel = 0
+		filledFrame.Size = udim2New(1, 0, 1, 0)
+		filledFrame.Position = udim2New(0, 0, 0, 0)
+		filledFrame.ZIndex = -1
+		filledFrame.Visible = false
+		filledFrame.Parent = billboard
+		
 		return {
 			player = player,
 			billboard = billboard,
 			box = box,
 			stroke = stroke,
+			gradient = gradient,
 			outlineFrame = outlineFrame,
 			outlineStroke = outlineStroke,
 			inlineFrame = inlineFrame,
-			inlineStroke = inlineStroke
+			inlineStroke = inlineStroke,
+			filledFrame = filledFrame
 		}
 	end
 	
@@ -160,16 +186,37 @@ do
 								local espData = framework:createBox(player)
 								if espData then
 									framework:setESP(player, espData)
-									-- Устанавливаем цвет бокса
-									if Library.Flags["Box_Color"] then
-										espData.stroke.Color = Library.Flags["Box_Color"].Color
+									-- Устанавливаем градиент бокса
+									if espData.gradient then
+										local c1 = Library.Flags["Box_Color_1"] and Library.Flags["Box_Color_1"].Color or color3FromRGB(255, 255, 255)
+										local c2 = Library.Flags["Box_Color_2"] and Library.Flags["Box_Color_2"].Color or color3FromRGB(255, 255, 255)
+										local c3 = Library.Flags["Box_Color_3"] and Library.Flags["Box_Color_3"].Color or color3FromRGB(255, 255, 255)
+										local c4 = Library.Flags["Box_Color_4"] and Library.Flags["Box_Color_4"].Color or color3FromRGB(255, 255, 255)
+										espData.gradient.Color = ColorSequence.new({
+											ColorSequenceKeypoint.new(0, c1),
+											ColorSequenceKeypoint.new(0.33, c2),
+											ColorSequenceKeypoint.new(0.66, c3),
+											ColorSequenceKeypoint.new(1, c4)
+										})
 									end
-									-- Устанавливаем цвет и видимость outline
-									if Library.Flags["Box_Outline_Color"] then
+									-- Устанавливаем цвет и видимость outline и inline
+									if Library.Flags["Box_Outline_Color"] and Library.Flags["Box_Outline_Color"].Color then
 										espData.outlineStroke.Color = Library.Flags["Box_Outline_Color"].Color
+										espData.inlineStroke.Color = Library.Flags["Box_Outline_Color"].Color
 									end
 									if Library.Flags["Box_Outline_Enabled"] ~= nil then
 										espData.outlineFrame.Visible = Library.Flags["Box_Outline_Enabled"]
+										espData.inlineFrame.Visible = Library.Flags["Box_Outline_Enabled"]
+									end
+									-- Устанавливаем параметры filled
+									if Library.Flags["Box_Filled_Enabled"] then
+										espData.filledFrame.Visible = Library.Flags["Box_Filled_Enabled"]
+									end
+									if Library.Flags["Box_Filled_Color"] and Library.Flags["Box_Filled_Color"].Color then
+										espData.filledFrame.BackgroundColor3 = Library.Flags["Box_Filled_Color"].Color
+									end
+									if Library.Flags["Box_Filled_Transparency"] then
+										espData.filledFrame.BackgroundTransparency = Library.Flags["Box_Filled_Transparency"]
 									end
 								end
 							end
@@ -182,15 +229,112 @@ do
 			})
 			
 			boxToggle:Colorpicker({
-				Name = "Box Color",
+				Name = "Box Color 1",
 				Default = color3FromRGB(255, 255, 255),
-				Flag = "Box_Color",
+				Flag = "Box_Color_1",
 				Callback = function(color)
-					-- Обновляем цвет для всех существующих ESP
+					if not Library.Flags["Box_Enabled"] then return end
+					-- Обновляем градиент для всех существующих ESP
 					for _, player in pairs(players:GetPlayers()) do
 						local espData = framework:getESP(player)
-						if espData and espData.stroke then
-							espData.stroke.Color = color
+						if espData and espData.gradient then
+							local c2 = Library.Flags["Box_Color_2"] and Library.Flags["Box_Color_2"].Color or color3FromRGB(255, 255, 255)
+							local c3 = Library.Flags["Box_Color_3"] and Library.Flags["Box_Color_3"].Color or color3FromRGB(255, 255, 255)
+							local c4 = Library.Flags["Box_Color_4"] and Library.Flags["Box_Color_4"].Color or color3FromRGB(255, 255, 255)
+							espData.gradient.Color = ColorSequence.new({
+								ColorSequenceKeypoint.new(0, color),
+								ColorSequenceKeypoint.new(0.33, c2),
+								ColorSequenceKeypoint.new(0.66, c3),
+								ColorSequenceKeypoint.new(1, c4)
+							})
+						end
+					end
+				end
+			})
+			
+			boxToggle:Colorpicker({
+				Name = "Box Color 2",
+				Default = color3FromRGB(255, 255, 255),
+				Flag = "Box_Color_2",
+				Callback = function(color)
+					if not Library.Flags["Box_Enabled"] then return end
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData and espData.gradient then
+							local c1 = Library.Flags["Box_Color_1"] and Library.Flags["Box_Color_1"].Color or color3FromRGB(255, 255, 255)
+							local c3 = Library.Flags["Box_Color_3"] and Library.Flags["Box_Color_3"].Color or color3FromRGB(255, 255, 255)
+							local c4 = Library.Flags["Box_Color_4"] and Library.Flags["Box_Color_4"].Color or color3FromRGB(255, 255, 255)
+							espData.gradient.Color = ColorSequence.new({
+								ColorSequenceKeypoint.new(0, c1),
+								ColorSequenceKeypoint.new(0.33, color),
+								ColorSequenceKeypoint.new(0.66, c3),
+								ColorSequenceKeypoint.new(1, c4)
+							})
+						end
+					end
+				end
+			})
+			
+			boxToggle:Colorpicker({
+				Name = "Box Color 3",
+				Default = color3FromRGB(255, 255, 255),
+				Flag = "Box_Color_3",
+				Callback = function(color)
+					if not Library.Flags["Box_Enabled"] then return end
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData and espData.gradient then
+							local c1 = Library.Flags["Box_Color_1"] and Library.Flags["Box_Color_1"].Color or color3FromRGB(255, 255, 255)
+							local c2 = Library.Flags["Box_Color_2"] and Library.Flags["Box_Color_2"].Color or color3FromRGB(255, 255, 255)
+							local c4 = Library.Flags["Box_Color_4"] and Library.Flags["Box_Color_4"].Color or color3FromRGB(255, 255, 255)
+							espData.gradient.Color = ColorSequence.new({
+								ColorSequenceKeypoint.new(0, c1),
+								ColorSequenceKeypoint.new(0.33, c2),
+								ColorSequenceKeypoint.new(0.66, color),
+								ColorSequenceKeypoint.new(1, c4)
+							})
+						end
+					end
+				end
+			})
+			
+			boxToggle:Colorpicker({
+				Name = "Box Color 4",
+				Default = color3FromRGB(255, 255, 255),
+				Flag = "Box_Color_4",
+				Callback = function(color)
+					if not Library.Flags["Box_Enabled"] then return end
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData and espData.gradient then
+							local c1 = Library.Flags["Box_Color_1"] and Library.Flags["Box_Color_1"].Color or color3FromRGB(255, 255, 255)
+							local c2 = Library.Flags["Box_Color_2"] and Library.Flags["Box_Color_2"].Color or color3FromRGB(255, 255, 255)
+							local c3 = Library.Flags["Box_Color_3"] and Library.Flags["Box_Color_3"].Color or color3FromRGB(255, 255, 255)
+							espData.gradient.Color = ColorSequence.new({
+								ColorSequenceKeypoint.new(0, c1),
+								ColorSequenceKeypoint.new(0.33, c2),
+								ColorSequenceKeypoint.new(0.66, c3),
+								ColorSequenceKeypoint.new(1, color)
+							})
+						end
+					end
+				end
+			})
+			
+			BoxSection:Slider({
+				Name = "Rotate",
+				Min = 0,
+				Max = 360,
+				Decimals = 1,
+				Default = 90,
+				Flag = "Box_Gradient_Rotation",
+				Callback = function(value)
+					if not Library.Flags["Box_Enabled"] then return end
+					-- Обновляем поворот градиента для всех существующих ESP
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData and espData.gradient then
+							espData.gradient.Rotation = value
 						end
 					end
 				end
@@ -201,6 +345,7 @@ do
 				Default = true,
 				Flag = "Box_Outline_Enabled",
 				Callback = function(value)
+					if not Library.Flags["Box_Enabled"] then return end
 					-- Обновляем видимость outline и inline для всех существующих ESP
 					for _, player in pairs(players:GetPlayers()) do
 						local espData = framework:getESP(player)
@@ -221,6 +366,7 @@ do
 				Default = color3FromRGB(0, 0, 0),
 				Flag = "Box_Outline_Color",
 				Callback = function(color)
+					if not Library.Flags["Box_Enabled"] then return end
 					-- Обновляем цвет outline и inline для всех существующих ESP
 					for _, player in pairs(players:GetPlayers()) do
 						local espData = framework:getESP(player)
@@ -231,6 +377,40 @@ do
 							if espData.inlineStroke then
 								espData.inlineStroke.Color = color
 							end
+						end
+					end
+				end
+			})
+			
+			local filledToggle = BoxSection:Toggle({
+				Name = "Filled",
+				Default = false,
+				Flag = "Box_Filled_Enabled",
+				Callback = function(value)
+					if not Library.Flags["Box_Enabled"] then return end
+					-- Обновляем видимость filled для всех существующих ESP
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData and espData.filledFrame then
+							espData.filledFrame.Visible = value
+						end
+					end
+				end
+			})
+			
+			filledToggle:Colorpicker({
+				Name = "Filled Color",
+				Default = color3FromRGB(255, 255, 255),
+				Transparency = 0.5,
+				Flag = "Box_Filled_Color",
+				Callback = function(color, transparency)
+					if not Library.Flags["Box_Enabled"] then return end
+					-- Обновляем цвет и прозрачность filled для всех существующих ESP
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData and espData.filledFrame then
+							espData.filledFrame.BackgroundColor3 = color
+							espData.filledFrame.BackgroundTransparency = transparency
 						end
 					end
 				end
@@ -393,9 +573,22 @@ do
 						local espData = framework:createBox(player)
 						if espData then
 							framework:setESP(player, espData)
-							-- Устанавливаем цвет бокса
-							if Library.Flags["Box_Color"] then
-								espData.stroke.Color = Library.Flags["Box_Color"].Color
+							-- Устанавливаем градиент бокса
+							if espData.gradient then
+								local c1 = Library.Flags["Box_Color_1"] and Library.Flags["Box_Color_1"].Color or color3FromRGB(255, 255, 255)
+								local c2 = Library.Flags["Box_Color_2"] and Library.Flags["Box_Color_2"].Color or color3FromRGB(255, 255, 255)
+								local c3 = Library.Flags["Box_Color_3"] and Library.Flags["Box_Color_3"].Color or color3FromRGB(255, 255, 255)
+								local c4 = Library.Flags["Box_Color_4"] and Library.Flags["Box_Color_4"].Color or color3FromRGB(255, 255, 255)
+								espData.gradient.Color = ColorSequence.new({
+									ColorSequenceKeypoint.new(0, c1),
+									ColorSequenceKeypoint.new(0.33, c2),
+									ColorSequenceKeypoint.new(0.66, c3),
+									ColorSequenceKeypoint.new(1, c4)
+								})
+								-- Устанавливаем поворот градиента
+								if Library.Flags["Box_Gradient_Rotation"] then
+									espData.gradient.Rotation = Library.Flags["Box_Gradient_Rotation"]
+								end
 							end
 							-- Устанавливаем цвет и видимость outline и inline
 							if Library.Flags["Box_Outline_Color"] then
@@ -405,6 +598,18 @@ do
 							if Library.Flags["Box_Outline_Enabled"] ~= nil then
 								espData.outlineFrame.Visible = Library.Flags["Box_Outline_Enabled"]
 								espData.inlineFrame.Visible = Library.Flags["Box_Outline_Enabled"]
+							end
+							-- Устанавливаем параметры filled
+							if Library.Flags["Box_Filled_Enabled"] then
+								espData.filledFrame.Visible = Library.Flags["Box_Filled_Enabled"]
+							end
+							if Library.Flags["Box_Filled_Color"] then
+								if Library.Flags["Box_Filled_Color"].Color then
+									espData.filledFrame.BackgroundColor3 = Library.Flags["Box_Filled_Color"].Color
+								end
+								if Library.Flags["Box_Filled_Color"].Transparency then
+									espData.filledFrame.BackgroundTransparency = Library.Flags["Box_Filled_Color"].Transparency
+								end
 							end
 						end
 					end
@@ -426,9 +631,22 @@ do
 						local espData = framework:createBox(player)
 						if espData then
 							framework:setESP(player, espData)
-							-- Устанавливаем цвет бокса
-							if Library.Flags["Box_Color"] then
-								espData.stroke.Color = Library.Flags["Box_Color"].Color
+							-- Устанавливаем градиент бокса
+							if espData.gradient then
+								local c1 = Library.Flags["Box_Color_1"] and Library.Flags["Box_Color_1"].Color or color3FromRGB(255, 255, 255)
+								local c2 = Library.Flags["Box_Color_2"] and Library.Flags["Box_Color_2"].Color or color3FromRGB(255, 255, 255)
+								local c3 = Library.Flags["Box_Color_3"] and Library.Flags["Box_Color_3"].Color or color3FromRGB(255, 255, 255)
+								local c4 = Library.Flags["Box_Color_4"] and Library.Flags["Box_Color_4"].Color or color3FromRGB(255, 255, 255)
+								espData.gradient.Color = ColorSequence.new({
+									ColorSequenceKeypoint.new(0, c1),
+									ColorSequenceKeypoint.new(0.33, c2),
+									ColorSequenceKeypoint.new(0.66, c3),
+									ColorSequenceKeypoint.new(1, c4)
+								})
+								-- Устанавливаем поворот градиента
+								if Library.Flags["Box_Gradient_Rotation"] then
+									espData.gradient.Rotation = Library.Flags["Box_Gradient_Rotation"]
+								end
 							end
 							-- Устанавливаем цвет и видимость outline и inline
 							if Library.Flags["Box_Outline_Color"] then
@@ -438,6 +656,18 @@ do
 							if Library.Flags["Box_Outline_Enabled"] ~= nil then
 								espData.outlineFrame.Visible = Library.Flags["Box_Outline_Enabled"]
 								espData.inlineFrame.Visible = Library.Flags["Box_Outline_Enabled"]
+							end
+							-- Устанавливаем параметры filled
+							if Library.Flags["Box_Filled_Enabled"] then
+								espData.filledFrame.Visible = Library.Flags["Box_Filled_Enabled"]
+							end
+							if Library.Flags["Box_Filled_Color"] then
+								if Library.Flags["Box_Filled_Color"].Color then
+									espData.filledFrame.BackgroundColor3 = Library.Flags["Box_Filled_Color"].Color
+								end
+								if Library.Flags["Box_Filled_Color"].Transparency then
+									espData.filledFrame.BackgroundTransparency = Library.Flags["Box_Filled_Color"].Transparency
+								end
 							end
 						end
 					end
