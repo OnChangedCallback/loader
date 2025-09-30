@@ -4,9 +4,105 @@ local marketplaceService = getService(game, "MarketplaceService")
 local teleportService = getService(game, "TeleportService")
 local httpService = getService(game, "HttpService")
 local players = getService(game, "Players")
+local runService = getService(game, "RunService")
+local workspace = getService(game, "Workspace")
 local localPlayer = players.LocalPlayer
 local osDate, mathRandom = os.date, math.random
 local udim2New, color3FromRGB = UDim2.new, Color3.fromRGB
+local vector2New, vector3New = Vector2.new, Vector3.new
+local instanceNew = Instance.new
+local currentCamera = workspace.CurrentCamera
+
+-- // esp framework
+local framework = {}
+do
+	local espCache = {}
+	local mathFloor = math.floor
+	
+	function framework:createBox(player)
+		local character = player.Character
+		if not character then return end
+		
+		local hrp = character:FindFirstChild("HumanoidRootPart")
+		if not hrp then return end
+		
+		-- Создаем BillboardGui
+		local billboard = instanceNew("BillboardGui")
+		billboard.Name = "ESPBox"
+		billboard.AlwaysOnTop = true
+		billboard.Size = udim2New(2.5, 0, 5, 0)
+		billboard.StudsOffset = vector3New(0, 0, 0)
+		billboard.Parent = hrp
+		
+		-- Создаем Frame для бокса
+		local box = instanceNew("Frame")
+		box.Name = "Box"
+		box.BackgroundTransparency = 1
+		box.Size = udim2New(1, 0, 1, 0)
+		box.Position = udim2New(0, 0, 0, 0)
+		box.Parent = billboard
+		
+		-- Создаем UIStroke для обводки
+		local stroke = instanceNew("UIStroke")
+		stroke.Name = "Stroke"
+		stroke.Thickness = 1
+		stroke.Color = color3FromRGB(255, 255, 255)
+		stroke.Parent = box
+		
+		-- Создаем outline (второй Frame с UIStroke)
+		local outlineFrame = instanceNew("Frame")
+		outlineFrame.Name = "OutlineFrame"
+		outlineFrame.BackgroundTransparency = 1
+		outlineFrame.Size = udim2New(1, 2, 1, 2)
+		outlineFrame.Position = udim2New(0, -1, 0, -1)
+		outlineFrame.Parent = billboard
+		
+		local outlineStroke = instanceNew("UIStroke")
+		outlineStroke.Name = "OutlineStroke"
+		outlineStroke.Thickness = 0.9
+		outlineStroke.Color = color3FromRGB(0, 0, 0)
+		outlineStroke.Parent = outlineFrame
+		
+		return {
+			player = player,
+			billboard = billboard,
+			box = box,
+			stroke = stroke,
+			outlineFrame = outlineFrame,
+			outlineStroke = outlineStroke
+		}
+	end
+	
+	function framework:removeBox(player)
+		local espData = espCache[player]
+		if espData and espData.billboard then
+			espData.billboard:Destroy()
+		end
+		espCache[player] = nil
+	end
+	
+	function framework:updateBox(espData)
+		-- Фиксированный размер, не нужно обновлять каждый кадр
+		-- Размер устанавливается при создании
+	end
+	
+	function framework:getESP(player)
+		return espCache[player]
+	end
+	
+	function framework:setESP(player, espData)
+		espCache[player] = espData
+	end
+	
+	function framework:clearAll()
+		for player, espData in pairs(espCache) do
+			if espData.billboard then
+				espData.billboard:Destroy()
+			end
+		end
+		espCache = {}
+	end
+end
 
 -- // library initialization
 do
@@ -36,7 +132,83 @@ do
 		
 		-- Box вкладка
 		do
-			-- UI элементы будут добавлены позже
+			local boxToggle = BoxSection:Toggle({
+				Name = "Box ESP",
+				Default = false,
+				Flag = "Box_Enabled",
+				Callback = function(value)
+					if value then
+						-- Создаем ESP для всех игроков
+						for _, player in pairs(players:GetPlayers()) do
+							if player ~= localPlayer and player.Character then
+								local espData = framework:createBox(player)
+								if espData then
+									framework:setESP(player, espData)
+									-- Устанавливаем цвет бокса
+									if Library.Flags["Box_Color"] then
+										espData.stroke.Color = Library.Flags["Box_Color"].Color
+									end
+									-- Устанавливаем цвет и видимость outline
+									if Library.Flags["Box_Outline_Color"] then
+										espData.outlineStroke.Color = Library.Flags["Box_Outline_Color"].Color
+									end
+									if Library.Flags["Box_Outline_Enabled"] ~= nil then
+										espData.outlineFrame.Visible = Library.Flags["Box_Outline_Enabled"]
+									end
+								end
+							end
+						end
+					else
+						-- Удаляем все ESP
+						framework:clearAll()
+					end
+				end
+			})
+			
+			boxToggle:Colorpicker({
+				Name = "Box Color",
+				Default = color3FromRGB(255, 255, 255),
+				Flag = "Box_Color",
+				Callback = function(color)
+					-- Обновляем цвет для всех существующих ESP
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData and espData.stroke then
+							espData.stroke.Color = color
+						end
+					end
+				end
+			})
+			
+			local outlineToggle = BoxSection:Toggle({
+				Name = "Box Outline",
+				Default = true,
+				Flag = "Box_Outline_Enabled",
+				Callback = function(value)
+					-- Обновляем видимость outline для всех существующих ESP
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData and espData.outlineFrame then
+							espData.outlineFrame.Visible = value
+						end
+					end
+				end
+			})
+			
+			outlineToggle:Colorpicker({
+				Name = "Outline Color",
+				Default = color3FromRGB(0, 0, 0),
+				Flag = "Box_Outline_Color",
+				Callback = function(color)
+					-- Обновляем цвет outline для всех существующих ESP
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData and espData.outlineStroke then
+							espData.outlineStroke.Color = color
+						end
+					end
+				end
+			})
 		end
 		
 		-- Health вкладка
@@ -182,5 +354,67 @@ do
 			end})
 			GameSection:Slider({Name = "Max Players", Flag = "max_players", Min = 0, Max = 40, Default = 15, Decimals = 1})
 		end
+	end
+	
+	-- // esp connections
+	do
+		-- Обработка новых игроков
+		players.PlayerAdded:Connect(function(player)
+			if Library.Flags["Box_Enabled"] then
+				player.CharacterAdded:Connect(function(character)
+					task.wait(0.5) -- Ждем загрузки персонажа
+					if Library.Flags["Box_Enabled"] then
+						local espData = framework:createBox(player)
+						if espData then
+							framework:setESP(player, espData)
+							-- Устанавливаем цвет бокса
+							if Library.Flags["Box_Color"] then
+								espData.stroke.Color = Library.Flags["Box_Color"].Color
+							end
+							-- Устанавливаем цвет и видимость outline
+							if Library.Flags["Box_Outline_Color"] then
+								espData.outlineStroke.Color = Library.Flags["Box_Outline_Color"].Color
+							end
+							if Library.Flags["Box_Outline_Enabled"] ~= nil then
+								espData.outlineFrame.Visible = Library.Flags["Box_Outline_Enabled"]
+							end
+						end
+					end
+				end)
+			end
+		end)
+		
+		-- Обработка выхода игроков
+		players.PlayerRemoving:Connect(function(player)
+			framework:removeBox(player)
+		end)
+		
+		-- Обработка существующих игроков
+		for _, player in pairs(players:GetPlayers()) do
+			if player ~= localPlayer then
+				player.CharacterAdded:Connect(function(character)
+					task.wait(0.5)
+					if Library.Flags["Box_Enabled"] then
+						local espData = framework:createBox(player)
+						if espData then
+							framework:setESP(player, espData)
+							-- Устанавливаем цвет бокса
+							if Library.Flags["Box_Color"] then
+								espData.stroke.Color = Library.Flags["Box_Color"].Color
+							end
+							-- Устанавливаем цвет и видимость outline
+							if Library.Flags["Box_Outline_Color"] then
+								espData.outlineStroke.Color = Library.Flags["Box_Outline_Color"].Color
+							end
+							if Library.Flags["Box_Outline_Enabled"] ~= nil then
+								espData.outlineFrame.Visible = Library.Flags["Box_Outline_Enabled"]
+							end
+						end
+					end
+				end)
+			end
+		end
+		
+		-- Фиксированный размер, обновление не требуется
 	end
 end
