@@ -13,18 +13,17 @@ local vector2New, vector3New = Vector2.new, Vector3.new
 local instanceNew = Instance.new
 local currentCamera = workspace.CurrentCamera
 local cframe = CFrame.new
-local mathHuge = math.huge
+local mathHuge, mathFloor, mathMin, mathMax, mathClamp = math.huge, math.floor, math.min, math.max, math.clamp or function(val, min, max) return math.max(min, math.min(max, val)) end
 local colorSequenceKeypoint = ColorSequenceKeypoint.new
-local taskWait = task.wait
+local taskWait, taskSpawn = task.wait, task.spawn
 
 -- // esp framework
 local framework = {}
 do
 	local espCache = {}
 	local screenGui
-	local mathFloor = math.floor
 	
-	-- Создаем ScreenGui один раз для всех ESP элементов
+	-- // init screengui
 	local function initScreenGui()
 		if not screenGui then
 			screenGui = instanceNew("ScreenGui")
@@ -45,7 +44,7 @@ do
 		
 		local gui = initScreenGui()
 		
-		-- Создаем Frame для бокса
+		-- // box frame
 		local box = instanceNew("Frame")
 		box.Name = "Box_" .. player.Name
 		box.BackgroundTransparency = 1
@@ -54,14 +53,14 @@ do
 		box.BorderSizePixel = 0
 		box.Parent = gui
 		
-		-- Создаем UIStroke для обводки
+		-- // box stroke
 		local stroke = instanceNew("UIStroke")
 		stroke.Name = "Stroke"
 		stroke.Thickness = 1.1
 		stroke.Color = color3FromRGB(255, 255, 255)
 		stroke.Parent = box
 		
-		-- Создаем UIGradient для градиента бокса
+		-- // box gradient
 		local gradient = instanceNew("UIGradient")
 		gradient.Name = "Gradient"
 		gradient.Rotation = 90
@@ -73,7 +72,7 @@ do
 		})
 		gradient.Parent = stroke
 		
-		-- Создаем outline (внешняя обводка)
+		-- // outline frame
 		local outlineFrame = instanceNew("Frame")
 		outlineFrame.Name = "OutlineFrame"
 		outlineFrame.BackgroundTransparency = 1
@@ -88,7 +87,7 @@ do
 		outlineStroke.Color = color3FromRGB(0, 0, 0)
 		outlineStroke.Parent = outlineFrame
 		
-		-- Создаем inline (внутренняя обводка)
+		-- // inline frame
 		local inlineFrame = instanceNew("Frame")
 		inlineFrame.Name = "InlineFrame"
 		inlineFrame.BackgroundTransparency = 1
@@ -103,7 +102,7 @@ do
 		inlineStroke.Color = color3FromRGB(0, 0, 0)
 		inlineStroke.Parent = inlineFrame
 		
-		-- Создаем filled (фон бокса)
+		-- // filled frame
 		local filledFrame = instanceNew("Frame")
 		filledFrame.Name = "FilledFrame"
 		filledFrame.BackgroundTransparency = 0.5
@@ -115,7 +114,7 @@ do
 		filledFrame.Visible = false
 		filledFrame.Parent = box
 		
-		-- Outline для healthbar
+		-- // healthbar outline
 		local healthBarOutline = instanceNew("Frame")
 		healthBarOutline.Name = "HealthBarOutline_" .. player.Name
 		healthBarOutline.BackgroundColor3 = color3FromRGB(0, 0, 0)
@@ -129,7 +128,7 @@ do
 		healthBarOutlineStroke.Color = color3FromRGB(0, 0, 0)
 		healthBarOutlineStroke.Parent = healthBarOutline
 		
-		-- Fill для healthbar
+		-- // healthbar fill
 		local healthBarFill = instanceNew("Frame")
 		healthBarFill.Name = "HealthBarFill"
 		healthBarFill.BackgroundTransparency = 0
@@ -150,7 +149,7 @@ do
 		})
 		healthBarGradient.Parent = healthBarFill
 		
-		-- Outline для armorbar
+		-- // armorbar outline
 		local armorBarOutline = instanceNew("Frame")
 		armorBarOutline.Name = "ArmorBarOutline_" .. player.Name
 		armorBarOutline.BackgroundColor3 = color3FromRGB(0, 0, 0)
@@ -164,7 +163,7 @@ do
 		armorBarOutlineStroke.Color = color3FromRGB(0, 0, 0)
 		armorBarOutlineStroke.Parent = armorBarOutline
 		
-		-- Fill для armorbar
+		-- // armorbar fill
 		local armorBarFill = instanceNew("Frame")
 		armorBarFill.Name = "ArmorBarFill"
 		armorBarFill.BackgroundTransparency = 0
@@ -185,7 +184,7 @@ do
 		})
 		armorBarGradient.Parent = armorBarFill
 		
-		-- Текстовые флаги (отдельные TextLabel для каждого флага)
+		-- // flags container
 		local flagsContainer = instanceNew("Frame")
 		flagsContainer.Name = "FlagsContainer_" .. player.Name
 		flagsContainer.BackgroundTransparency = 1
@@ -357,7 +356,7 @@ do
 		if not espData or not espData.character or not espData.box then return end
 		
 		local character = espData.character
-		-- Проверяем что персонаж все еще существует
+		-- // character validation
 		if not character.Parent then
 			espData.box.Visible = false
 			if espData.healthBarOutline then
@@ -389,7 +388,7 @@ do
 			return
 		end
 		
-		-- Получаем позицию бокса на экране
+		-- // screen position
 		local boxPos, onScreen = currentCamera:WorldToViewportPoint(hrp.Position)
 		
 		if not onScreen then
@@ -406,12 +405,12 @@ do
 			return
 		end
 		
-		-- Вычисляем размеры бокса через 8 углов
+		-- // box dimensions
 		local sizeX = 2.5
 		local sizeY = 6
 		local sizeZ = 1.5
 		
-		-- Все 8 углов 3D бокса
+		-- // 8 corners calculation
 		local corners = {
 			currentCamera:WorldToViewportPoint((hrp.CFrame * cframe(-sizeX/2, -sizeY/2, -sizeZ/2)).Position),
 			currentCamera:WorldToViewportPoint((hrp.CFrame * cframe(sizeX/2, -sizeY/2, -sizeZ/2)).Position),
@@ -423,16 +422,16 @@ do
 			currentCamera:WorldToViewportPoint((hrp.CFrame * cframe(sizeX/2, sizeY/2, sizeZ/2)).Position)
 		}
 		
-		-- Находим минимальные и максимальные координаты
-		local minX, minY = math.huge, math.huge
-		local maxX, maxY = -math.huge, -math.huge
+		-- // min/max coordinates
+		local minX, minY = mathHuge, mathHuge
+		local maxX, maxY = -mathHuge, -mathHuge
 		
 		for i = 1, 8 do
 			local corner = corners[i]
-			minX = math.min(minX, corner.X)
-			minY = math.min(minY, corner.Y)
-			maxX = math.max(maxX, corner.X)
-			maxY = math.max(maxY, corner.Y)
+			minX = mathMin(minX, corner.X)
+			minY = mathMin(minY, corner.Y)
+			maxX = mathMax(maxX, corner.X)
+			maxY = mathMax(maxY, corner.Y)
 		end
 		
 		local boxWidth = maxX - minX
@@ -440,13 +439,13 @@ do
 		local boxX = minX
 		local boxY = minY
 		
-		-- Сохраняем позицию для использования в healthbar (всегда, независимо от Box_Enabled)
+		-- // save position for bars
 		espData.lastBoxX = boxX
 		espData.lastBoxY = boxY
 		espData.lastBoxWidth = boxWidth
 		espData.lastBoxHeight = boxHeight
 		
-		-- Обновляем бокс если включен
+		-- // update box
 		local boxEnabled = flags and flags["Box_Enabled"] or false
 		espData.box.Visible = boxEnabled
 		if boxEnabled then
@@ -454,25 +453,24 @@ do
 			espData.box.Size = udim2New(0, boxWidth, 0, boxHeight)
 		end
 		
-		-- Обновляем healthbar если включен (используем сохраненные позиции)
+		-- // update healthbar
 		local healthEnabled = flags and flags["Health_Enabled"] or false
 		if healthEnabled and humanoid and espData.healthBarFill and espData.healthBarOutline and espData.lastBoxX then
-			local currentHealth = math.min(humanoid.Health / humanoid.MaxHealth, 1)
+			local currentHealth = mathMin(humanoid.Health / humanoid.MaxHealth, 1)
 			local lastHealth = espData.lastHealth or currentHealth
 			local lerpedHealth = lastHealth + (currentHealth - lastHealth) * 0.05
 			espData.lastHealth = lerpedHealth
 			
-			-- Динамический offset в зависимости от расстояния
+			-- // dynamic offset
 			local distance = (hrp.Position - currentCamera.CFrame.Position).Magnitude
 			local baseOffset = 4.1
-			local mathClamp = math.clamp or function(val, min, max) return math.max(min, math.min(max, val)) end
 			local scaleFactor = mathClamp(1 + (distance / 100) * 0.2, 1, 1.2)
 			local dynamicOffset = baseOffset * scaleFactor
 			
-			-- Толщина бара чуть тоньше
+			-- // bar width
 			local barWidth = 0.6
 			
-			-- Позиция healthbar слева от бокса (используем сохраненные значения)
+			-- // healthbar position
 			local barX = espData.lastBoxX - dynamicOffset - barWidth - 1
 			local barY = espData.lastBoxY - 1
 			local barHeight = espData.lastBoxHeight + 2
@@ -481,7 +479,7 @@ do
 			espData.healthBarOutline.Size = udim2New(0, barWidth + 2, 0, barHeight)
 			espData.healthBarOutline.Visible = true
 			
-			-- Обновляем видимость outline stroke
+			-- // outline visibility
 			if espData.healthBarOutlineStroke then
 				local outlineEnabled = flags and flags["Health_Outline_Enabled"]
 				if outlineEnabled ~= nil then
@@ -489,7 +487,7 @@ do
 				end
 			end
 			
-			-- Заполнение healthbar снизу вверх
+			-- // healthbar fill
 			espData.healthBarFill.Size = udim2New(1, 0, lerpedHealth, 0)
 		else
 			if espData.healthBarOutline then
@@ -497,10 +495,10 @@ do
 			end
 		end
 		
-		-- Обновляем armorbar если включен (используем сохраненные позиции)
+		-- // update armorbar
 		local armorEnabled = flags and flags["Armor_Enabled"] or false
 		if armorEnabled and espData.armorBarFill and espData.armorBarOutline and espData.lastBoxX then
-			-- Получаем броню из workspace.Players.[PlayerName].BodyEffects.Armor
+			-- // get armor value
 			local armorValue = 0
 			local workspacePlayers = workspace:FindFirstChild("Players")
 			if workspacePlayers then
@@ -516,22 +514,21 @@ do
 				end
 			end
 			
-			local currentArmor = math.min(armorValue / 130, 1)
+			local currentArmor = mathMin(armorValue / 130, 1)
 			local lastArmor = espData.lastArmor or currentArmor
 			local lerpedArmor = lastArmor + (currentArmor - lastArmor) * 0.05
 			espData.lastArmor = lerpedArmor
 			
-			-- Динамический offset в зависимости от расстояния
+			-- // dynamic offset
 			local distance = (hrp.Position - currentCamera.CFrame.Position).Magnitude
 			local baseOffset = 4.1
-			local mathClamp = math.clamp or function(val, min, max) return math.max(min, math.min(max, val)) end
 			local scaleFactor = mathClamp(1 + (distance / 100) * 0.2, 1, 1.2)
 			local dynamicOffset = baseOffset * scaleFactor
 			
-			-- Толщина бара
+			-- // bar width
 			local barWidth = 0.6
 			
-			-- Позиция armorbar справа от бокса (используем сохраненные значения)
+			-- // armorbar position
 			local barX = espData.lastBoxX + espData.lastBoxWidth + dynamicOffset
 			local barY = espData.lastBoxY - 1
 			local barHeight = espData.lastBoxHeight + 2
@@ -540,7 +537,7 @@ do
 			espData.armorBarOutline.Size = udim2New(0, barWidth + 2, 0, barHeight)
 			espData.armorBarOutline.Visible = true
 			
-			-- Обновляем видимость outline stroke
+			-- // outline visibility
 			if espData.armorBarOutlineStroke then
 				local outlineEnabled = flags and flags["Armor_Outline_Enabled"]
 				if outlineEnabled ~= nil then
@@ -548,7 +545,7 @@ do
 				end
 			end
 			
-			-- Заполнение armorbar снизу вверх
+			-- // armorbar fill
 			espData.armorBarFill.Size = udim2New(1, 0, lerpedArmor, 0)
 		else
 			if espData.armorBarOutline then
@@ -556,21 +553,21 @@ do
 			end
 		end
 		
-		-- Обновляем флаги если включены (используем сохраненные позиции)
+		-- // update flags
 		local flagsEnabled = flags and (flags["Flags_Nickname"] or flags["Flags_DisplayName"] or flags["Flags_HealthPercent"] or flags["Flags_ArmorPercent"])
 		if flagsEnabled and espData.flagsContainer and espData.lastBoxX then
-			-- Позиционирование под боксом
+			-- // flags positioning
 			local textX = espData.lastBoxX
 			local textY = espData.lastBoxY + espData.lastBoxHeight + 2
 			local currentY = 0
 			
-			-- Никнейм
+			-- // nickname
 			if flags["Flags_Nickname"] and espData.nicknameText then
 				espData.nicknameText.Text = espData.player.Name
 				espData.nicknameText.Position = udim2New(0, 0, 0, currentY)
 				espData.nicknameText.Size = udim2New(0, 200, 0, 14)
 				espData.nicknameText.Visible = true
-				-- Применяем градиент
+				-- // apply gradient
 				if espData.nicknameGradient and flags["Flags_Nickname_Color1"] and flags["Flags_Nickname_Color2"] then
 					espData.nicknameGradient.Color = ColorSequence.new({
 						colorSequenceKeypoint(0, flags["Flags_Nickname_Color1"].Color),
@@ -584,7 +581,7 @@ do
 				end
 			end
 			
-			-- DisplayName
+			-- // displayname
 			if flags["Flags_DisplayName"] and espData.displayNameText then
 				local displayName = espData.player.DisplayName
 				if displayName and displayName ~= "" then
@@ -592,7 +589,7 @@ do
 					espData.displayNameText.Position = udim2New(0, 0, 0, currentY)
 					espData.displayNameText.Size = udim2New(0, 200, 0, 14)
 					espData.displayNameText.Visible = true
-					-- Применяем градиент
+					-- // apply gradient
 					if espData.displayNameGradient and flags["Flags_DisplayName_Color1"] and flags["Flags_DisplayName_Color2"] then
 						espData.displayNameGradient.Color = ColorSequence.new({
 							colorSequenceKeypoint(0, flags["Flags_DisplayName_Color1"].Color),
@@ -609,14 +606,14 @@ do
 				end
 			end
 			
-			-- HealthPercent
+			-- // health percent
 			if flags["Flags_HealthPercent"] and espData.healthPercentText and humanoid then
-				local healthPercent = math.floor((humanoid.Health / humanoid.MaxHealth) * 100)
+				local healthPercent = mathFloor((humanoid.Health / humanoid.MaxHealth) * 100)
 				espData.healthPercentText.Text = healthPercent .. "%"
 				espData.healthPercentText.Position = udim2New(0, 0, 0, currentY)
 				espData.healthPercentText.Size = udim2New(0, 200, 0, 14)
 				espData.healthPercentText.Visible = true
-				-- Применяем градиент
+				-- // apply gradient
 				if espData.healthPercentGradient and flags["Flags_HealthPercent_Color1"] and flags["Flags_HealthPercent_Color2"] then
 					espData.healthPercentGradient.Color = ColorSequence.new({
 						colorSequenceKeypoint(0, flags["Flags_HealthPercent_Color1"].Color),
@@ -630,7 +627,7 @@ do
 				end
 			end
 			
-			-- ArmorPercent
+			-- // armor percent
 			if flags["Flags_ArmorPercent"] and espData.armorPercentText then
 				-- Получаем броню из workspace.Players.[PlayerName].BodyEffects.Armor
 				local armorValue = 0
@@ -648,12 +645,12 @@ do
 					end
 				end
 				
-				local armorPercent = math.floor((armorValue / 130) * 100)
+				local armorPercent = mathFloor((armorValue / 130) * 100)
 				espData.armorPercentText.Text = armorPercent .. "%"
 				espData.armorPercentText.Position = udim2New(0, 0, 0, currentY)
 				espData.armorPercentText.Size = udim2New(0, 200, 0, 14)
 				espData.armorPercentText.Visible = true
-				-- Применяем градиент
+				-- // apply gradient
 				if espData.armorPercentGradient and flags["Flags_ArmorPercent_Color1"] and flags["Flags_ArmorPercent_Color2"] then
 					espData.armorPercentGradient.Color = ColorSequence.new({
 						colorSequenceKeypoint(0, flags["Flags_ArmorPercent_Color1"].Color),
@@ -667,7 +664,7 @@ do
 				end
 			end
 			
-			-- Позиционирование контейнера
+			-- // container positioning
 			espData.flagsContainer.Position = udim2New(0, textX, 0, textY)
 			espData.flagsContainer.Size = udim2New(0, 200, 0, currentY)
 			espData.flagsContainer.Visible = true
@@ -730,7 +727,7 @@ do
 			end
 		end
 		
-		-- Outline и inline
+		-- // outline settings
 		if flags["Box_Outline_Color"] then
 			espData.outlineStroke.Color = flags["Box_Outline_Color"].Color
 			espData.inlineStroke.Color = flags["Box_Outline_Color"].Color
@@ -740,7 +737,7 @@ do
 			espData.inlineFrame.Visible = flags["Box_Outline_Enabled"]
 		end
 		
-		-- Filled
+		-- // filled settings
 		if flags["Box_Filled_Enabled"] ~= nil then
 			espData.filledFrame.Visible = flags["Box_Filled_Enabled"]
 		end
@@ -767,12 +764,12 @@ do
 			})
 		end
 		
-		-- Healthbar outline
+		-- // healthbar outline settings
 		if espData.healthBarOutlineStroke and flags["Health_Outline_Color"] then
 			espData.healthBarOutlineStroke.Color = flags["Health_Outline_Color"].Color
 		end
 		
-		-- Armorbar
+		-- // armorbar settings
 		if espData.armorBarGradient then
 			local ac1 = flags["Armor_Color_1"] and flags["Armor_Color_1"].Color or color3FromRGB(0, 150, 255)
 			local ac2 = flags["Armor_Color_2"] and flags["Armor_Color_2"].Color or color3FromRGB(0, 150, 255)
@@ -786,12 +783,12 @@ do
 			})
 		end
 		
-		-- Armorbar outline
+		-- // armorbar outline settings
 		if espData.armorBarOutlineStroke and flags["Armor_Outline_Color"] then
 			espData.armorBarOutlineStroke.Color = flags["Armor_Outline_Color"].Color
 		end
 		
-		-- Flags (цвет применяется в updateBox)
+		-- // flags settings
 	end
 end
 
@@ -804,7 +801,7 @@ do
 	    FadeSpeed = 0.25
 	})
 	
-	-- Устанавливаем шрифт для ESP флагов
+	-- // set esp font
 	framework.libraryFont = Library.Font
 
 	local Watermark = Library:Watermark("R4ze.pub rewrite | ".. osDate("%b %d %Y") .. " | ".. marketplaceService:GetProductInfo(game.PlaceId).Name)
@@ -818,13 +815,13 @@ do
 	
 	-- // visuals tab funcs and ui
 	do
-		-- ESP мультисекция с вкладками Box, Health, Armor, Flags
+		-- // esp multisection
 		local BoxSection, HealthSection, ArmorSection, FlagsSection = VisualsTab:MultiSection({
 			Sections = {"Box", "Health", "Armor", "Flags"},
 			Side = 1
 		})
 		
-		-- Box вкладка
+		-- // box tab
 		do
 			local boxToggle = BoxSection:Toggle({
 				Name = "Box ESP",
@@ -832,7 +829,7 @@ do
 				Flag = "Box_Enabled",
 				Callback = function(value)
 					if value then
-						-- Создаем ESP для всех игроков если его еще нет
+						-- // create esp for all players
 						for _, player in pairs(players:GetPlayers()) do
 							if player ~= localPlayer and player.Character then
 								local espData = framework:getESP(player)
@@ -846,7 +843,7 @@ do
 							end
 						end
 					else
-						-- Если Health ESP тоже выключен, удаляем все ESP
+						-- // clear esp if disabled
 						if not Library.Flags["Health_Enabled"] then
 							framework:clearAll()
 						end
@@ -860,7 +857,7 @@ do
 				Flag = "Box_Color_1",
 				Callback = function(color)
 					if not Library.Flags["Box_Enabled"] then return end
-					-- Обновляем градиент для всех существующих ESP
+					-- // update gradient
 					for _, player in pairs(players:GetPlayers()) do
 						local espData = framework:getESP(player)
 						if espData and espData.gradient then
@@ -956,7 +953,7 @@ do
 				Flag = "Box_Gradient_Rotation",
 				Callback = function(value)
 					if not Library.Flags["Box_Enabled"] then return end
-					-- Обновляем поворот градиента для всех существующих ESP
+					-- // update gradient rotation
 					for _, player in pairs(players:GetPlayers()) do
 						local espData = framework:getESP(player)
 						if espData and espData.gradient then
@@ -972,7 +969,7 @@ do
 				Flag = "Box_Outline_Enabled",
 				Callback = function(value)
 					if not Library.Flags["Box_Enabled"] then return end
-					-- Обновляем видимость outline и inline для всех существующих ESP
+					-- // update outline visibility
 					for _, player in pairs(players:GetPlayers()) do
 						local espData = framework:getESP(player)
 						if espData then
@@ -993,7 +990,7 @@ do
 				Flag = "Box_Outline_Color",
 				Callback = function(color)
 					if not Library.Flags["Box_Enabled"] then return end
-					-- Обновляем цвет outline и inline для всех существующих ESP
+					-- // update outline color
 					for _, player in pairs(players:GetPlayers()) do
 						local espData = framework:getESP(player)
 						if espData then
@@ -1014,7 +1011,7 @@ do
 				Flag = "Box_Filled_Enabled",
 				Callback = function(value)
 					if not Library.Flags["Box_Enabled"] then return end
-					-- Обновляем видимость filled для всех существующих ESP
+					-- // update filled visibility
 					for _, player in pairs(players:GetPlayers()) do
 						local espData = framework:getESP(player)
 						if espData and espData.filledFrame then
@@ -1031,7 +1028,7 @@ do
 				Flag = "Box_Filled_Color",
 				Callback = function(color, transparency)
 					if not Library.Flags["Box_Enabled"] then return end
-					-- Обновляем цвет и прозрачность filled для всех существующих ESP
+					-- // update filled color
 					for _, player in pairs(players:GetPlayers()) do
 						local espData = framework:getESP(player)
 						if espData and espData.filledFrame then
@@ -1043,7 +1040,7 @@ do
 			})
 		end
 		
-		-- Health вкладка
+		-- // health tab
 		do
 			local healthToggle = HealthSection:Toggle({
 				Name = "Health Bar",
@@ -1051,7 +1048,7 @@ do
 				Flag = "Health_Enabled",
 				Callback = function(value)
 					if value then
-						-- Создаем ESP для всех игроков если его еще нет
+						-- // create esp for all players
 						for _, player in pairs(players:GetPlayers()) do
 							if player ~= localPlayer and player.Character then
 								local espData = framework:getESP(player)
@@ -1065,11 +1062,11 @@ do
 							end
 						end
 					else
-						-- Если Box ESP тоже выключен, удаляем все ESP
+						-- // clear esp if all disabled
 						if not Library.Flags["Box_Enabled"] then
 							framework:clearAll()
 						else
-							-- Если Box ESP включен, просто скрываем healthbar
+							-- // hide healthbar only
 							for _, player in pairs(players:GetPlayers()) do
 								local espData = framework:getESP(player)
 								if espData and espData.healthBarOutline then
@@ -1157,7 +1154,7 @@ do
 			})
 		end
 		
-		-- Armor вкладка
+		-- // armor tab
 		do
 			local armorToggle = ArmorSection:Toggle({
 				Name = "Armor Bar",
@@ -1165,7 +1162,7 @@ do
 				Flag = "Armor_Enabled",
 				Callback = function(value)
 					if value then
-						-- Создаем ESP для всех игроков если его еще нет
+						-- // create esp for all players
 						for _, player in pairs(players:GetPlayers()) do
 							if player ~= localPlayer and player.Character then
 								local espData = framework:getESP(player)
@@ -1179,11 +1176,11 @@ do
 							end
 						end
 					else
-						-- Если Box ESP и Health ESP тоже выключены, удаляем все ESP
+						-- // clear esp if all disabled
 						if not Library.Flags["Box_Enabled"] and not Library.Flags["Health_Enabled"] then
 							framework:clearAll()
 						else
-							-- Если другие ESP включены, просто скрываем armorbar
+							-- // hide armorbar only
 							for _, player in pairs(players:GetPlayers()) do
 								local espData = framework:getESP(player)
 								if espData and espData.armorBarOutline then
@@ -1270,7 +1267,7 @@ do
 			})
 		end
 		
-		-- Flags вкладка
+		-- // flags tab
 		do
 			local nicknameToggle = FlagsSection:Toggle({
 				Name = "Nickname",
@@ -1278,7 +1275,7 @@ do
 				Flag = "Flags_Nickname",
 				Callback = function(value)
 					if value then
-						-- Создаем ESP для всех игроков если его еще нет
+						-- // create esp for all players
 						for _, player in pairs(players:GetPlayers()) do
 							if player ~= localPlayer and player.Character then
 								local espData = framework:getESP(player)
@@ -1292,11 +1289,11 @@ do
 							end
 						end
 					else
-						-- Если все ESP выключены, удаляем все ESP
+						-- // clear esp if all disabled
 						if not Library.Flags["Box_Enabled"] and not Library.Flags["Health_Enabled"] and not Library.Flags["Armor_Enabled"] then
 							framework:clearAll()
 						else
-							-- Если другие ESP включены, просто скрываем flags
+							-- // hide flags only
 							for _, player in pairs(players:GetPlayers()) do
 								local espData = framework:getESP(player)
 								if espData and espData.flagsText then
@@ -1313,7 +1310,7 @@ do
 				Default = color3FromRGB(255, 255, 255),
 				Flag = "Flags_Nickname_Color1",
 				Callback = function(color)
-					-- Градиент применяется в updateBox
+					-- // gradient applied in updatebox
 				end
 			})
 			
@@ -1322,7 +1319,7 @@ do
 				Default = color3FromRGB(255, 255, 255),
 				Flag = "Flags_Nickname_Color2",
 				Callback = function(color)
-					-- Градиент применяется в updateBox
+					-- // gradient applied in updatebox
 				end
 			})
 			
@@ -1332,7 +1329,7 @@ do
 				Flag = "Flags_DisplayName",
 				Callback = function(value)
 					if value then
-						-- Создаем ESP для всех игроков если его еще нет
+						-- // create esp for all players
 						for _, player in pairs(players:GetPlayers()) do
 							if player ~= localPlayer and player.Character then
 								local espData = framework:getESP(player)
@@ -1346,7 +1343,7 @@ do
 							end
 						end
 					else
-						-- Если все ESP выключены, удаляем все ESP
+						-- // clear esp if all disabled
 						if not Library.Flags["Box_Enabled"] and not Library.Flags["Health_Enabled"] and not Library.Flags["Armor_Enabled"] and not Library.Flags["Flags_Nickname"] then
 							framework:clearAll()
 						end
@@ -1359,7 +1356,7 @@ do
 				Default = color3FromRGB(255, 255, 255),
 				Flag = "Flags_DisplayName_Color1",
 				Callback = function(color)
-					-- Градиент применяется в updateBox
+					-- // gradient applied in updatebox
 				end
 			})
 			
@@ -1368,7 +1365,7 @@ do
 				Default = color3FromRGB(255, 255, 255),
 				Flag = "Flags_DisplayName_Color2",
 				Callback = function(color)
-					-- Градиент применяется в updateBox
+					-- // gradient applied in updatebox
 				end
 			})
 			
@@ -1378,7 +1375,7 @@ do
 				Flag = "Flags_HealthPercent",
 				Callback = function(value)
 					if value then
-						-- Создаем ESP для всех игроков если его еще нет
+						-- // create esp for all players
 						for _, player in pairs(players:GetPlayers()) do
 							if player ~= localPlayer and player.Character then
 								local espData = framework:getESP(player)
@@ -1392,7 +1389,7 @@ do
 							end
 						end
 					else
-						-- Если все ESP выключены, удаляем все ESP
+						-- // clear esp if all disabled
 						if not Library.Flags["Box_Enabled"] and not Library.Flags["Health_Enabled"] and not Library.Flags["Armor_Enabled"] and not Library.Flags["Flags_Nickname"] and not Library.Flags["Flags_DisplayName"] and not Library.Flags["Flags_ArmorPercent"] then
 							framework:clearAll()
 						end
@@ -1405,7 +1402,7 @@ do
 				Default = color3FromRGB(0, 255, 0),
 				Flag = "Flags_HealthPercent_Color1",
 				Callback = function(color)
-					-- Градиент применяется в updateBox
+					-- // gradient applied in updatebox
 				end
 			})
 			
@@ -1414,7 +1411,7 @@ do
 				Default = color3FromRGB(0, 255, 0),
 				Flag = "Flags_HealthPercent_Color2",
 				Callback = function(color)
-					-- Градиент применяется в updateBox
+					-- // gradient applied in updatebox
 				end
 			})
 			
@@ -1424,7 +1421,7 @@ do
 				Flag = "Flags_ArmorPercent",
 				Callback = function(value)
 					if value then
-						-- Создаем ESP для всех игроков если его еще нет
+						-- // create esp for all players
 						for _, player in pairs(players:GetPlayers()) do
 							if player ~= localPlayer and player.Character then
 								local espData = framework:getESP(player)
@@ -1438,7 +1435,7 @@ do
 							end
 						end
 					else
-						-- Если все ESP выключены, удаляем все ESP
+						-- // clear esp if all disabled
 						if not Library.Flags["Box_Enabled"] and not Library.Flags["Health_Enabled"] and not Library.Flags["Armor_Enabled"] and not Library.Flags["Flags_Nickname"] and not Library.Flags["Flags_DisplayName"] and not Library.Flags["Flags_HealthPercent"] then
 							framework:clearAll()
 						end
@@ -1451,7 +1448,7 @@ do
 				Default = color3FromRGB(0, 150, 255),
 				Flag = "Flags_ArmorPercent_Color1",
 				Callback = function(color)
-					-- Градиент применяется в updateBox
+					-- // gradient applied in updatebox
 				end
 			})
 			
@@ -1460,7 +1457,7 @@ do
 				Default = color3FromRGB(0, 150, 255),
 				Flag = "Flags_ArmorPercent_Color2",
 				Callback = function(color)
-					-- Градиент применяется в updateBox
+					-- // gradient applied in updatebox
 				end
 			})
 		end
@@ -1472,7 +1469,7 @@ do
 		local ConfigsSection = SettingsTab:Section({Name = "Profiles", Side = 1})
 		local GameSection = SettingsTab:Section({Name = "Game", Side = 3})
 		
-		-- Создаем colorpicker'ы для темы
+		-- // theme colorpickers
 		for Index, Value in Library.Theme do 
 			SettingsSection:Label({Name = Index, Alignment = "Left"}):Colorpicker({ 
 				Name = Index, 
@@ -1563,7 +1560,7 @@ do
 
 		Library:RefreshConfigsList(ConfigsListbox)
 		
-		-- Game Section
+		-- // game section
 		do
 			GameSection:Button({Name = "Copy JobId", Callback = function() 
 				setclipboard(game.JobId)
@@ -1597,22 +1594,22 @@ do
 	
 	-- // esp connections
 	do
-		-- RenderStepped для обновления позиций боксов
+		-- // renderstepped update
 		runService.RenderStepped:Connect(function()
 			if Library.Flags["Box_Enabled"] or Library.Flags["Health_Enabled"] or Library.Flags["Armor_Enabled"] or Library.Flags["Flags_Nickname"] or Library.Flags["Flags_DisplayName"] or Library.Flags["Flags_HealthPercent"] or Library.Flags["Flags_ArmorPercent"] then
 				framework:updateAllBoxes(Library.Flags)
 			end
 		end)
 		
-		-- Периодическая очистка "мертвых" ESP (каждые 5 секунд)
-		task.spawn(function()
+		-- // periodic cleanup
+		taskSpawn(function()
 			while taskWait(5) do
-				-- Проверяем всех игроков в игре
+				-- // check all players
 				for _, player in pairs(players:GetPlayers()) do
 					if player ~= localPlayer then
 						local espData = framework:getESP(player)
 						if espData then
-							-- Проверяем что персонаж существует
+							-- // validate character
 							if espData.character and not espData.character.Parent then
 								framework:removeBox(player)
 							end
@@ -1622,10 +1619,10 @@ do
 			end
 		end)
 		
-		-- Обработка новых игроков
+		-- // new players handler
 		players.PlayerAdded:Connect(function(player)
 			player.CharacterAdded:Connect(function(character)
-				taskWait(0.5) -- Ждем загрузки персонажа
+				taskWait(0.5) -- // wait for character load
 				if (Library.Flags["Box_Enabled"] or Library.Flags["Health_Enabled"] or Library.Flags["Armor_Enabled"] or Library.Flags["Flags_Nickname"] or Library.Flags["Flags_DisplayName"]) and player ~= localPlayer then
 					local espData = framework:createBox(player)
 					if espData then
@@ -1636,12 +1633,12 @@ do
 			end)
 		end)
 		
-		-- Обработка выхода игроков
+		-- // player removing handler
 		players.PlayerRemoving:Connect(function(player)
 			framework:removeBox(player)
 		end)
 		
-		-- Обработка смены персонажа (смерть/респавн)
+		-- // character respawn handler
 		players.PlayerAdded:Connect(function(player)
 			if player ~= localPlayer then
 				player.CharacterAdded:Connect(function(character)
@@ -1658,7 +1655,7 @@ do
 			end
 		end)
 		
-		-- Обработка существующих игроков
+		-- // existing players handler
 		for _, player in pairs(players:GetPlayers()) do
 			if player ~= localPlayer and player.Character then
 				if Library.Flags["Box_Enabled"] or Library.Flags["Health_Enabled"] or Library.Flags["Armor_Enabled"] or Library.Flags["Flags_Nickname"] or Library.Flags["Flags_DisplayName"] then
