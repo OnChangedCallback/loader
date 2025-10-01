@@ -1,0 +1,1928 @@
+-- // variables
+local getService = game.GetService
+local marketplaceService = getService(game, "MarketplaceService")
+local teleportService = getService(game, "TeleportService")
+local httpService = getService(game, "HttpService")
+local players = getService(game, "Players")
+local runService = getService(game, "RunService")
+local workspace = getService(game, "Workspace")
+local localPlayer = players.LocalPlayer
+local osDate, mathRandom = os.date, math.random
+local udim2New, color3FromRGB = UDim2.new, Color3.fromRGB
+local vector2New, vector3New = Vector2.new, Vector3.new
+local instanceNew = Instance.new
+local currentCamera = workspace.CurrentCamera
+local cframe = CFrame.new
+local mathHuge, mathFloor, mathMin, mathMax, mathClamp = math.huge, math.floor, math.min, math.max, math.clamp or function(val, min, max) return math.max(min, math.min(max, val)) end
+local colorSequenceKeypoint = ColorSequenceKeypoint.new
+local mouse = localPlayer:GetMouse()
+local vector3Zero = vector3New(0, 0, 0)
+local cframeLookAt = CFrame.lookAt
+local raycastParams = RaycastParams.new()
+raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+raycastParams.FilterDescendantsInstances = {localPlayer.Character}
+local taskWait, taskSpawn = task.wait, task.spawn
+
+-- // targeting system
+local targeting = {target = nil}
+
+-- // drawing api
+local drawingNew = Drawing.new
+local aimbotLineOutline = drawingNew("Line")
+aimbotLineOutline.Visible = false
+aimbotLineOutline.Color = Color3.fromRGB(0, 0, 0)
+aimbotLineOutline.Thickness = 4
+aimbotLineOutline.Transparency = 1
+
+local aimbotLine = drawingNew("Line")
+aimbotLine.Visible = false
+aimbotLine.Color = Color3.fromRGB(255, 255, 255)
+aimbotLine.Thickness = 1.5
+aimbotLine.Transparency = 1
+
+-- // esp framework
+local framework = {}
+do
+	local espCache = {}
+	local screenGui
+	
+	-- // init screengui
+	local function initScreenGui()
+		if not screenGui then
+			screenGui = instanceNew("ScreenGui")
+			screenGui.Name = "ESPScreenGui"
+			screenGui.ResetOnSpawn = false
+			screenGui.IgnoreGuiInset = true
+			screenGui.Parent = localPlayer:WaitForChild("PlayerGui")
+		end
+		return screenGui
+	end
+	
+	function framework:createBox(player)
+		local character = player.Character
+		if not character then return end
+		
+		local hrp = character:FindFirstChild("HumanoidRootPart")
+		if not hrp then return end
+		
+		local gui = initScreenGui()
+		
+		-- // box frame
+		local box = instanceNew("Frame")
+		box.Name = "Box_" .. player.Name
+		box.BackgroundTransparency = 1
+		box.Size = udim2New(0, 100, 0, 100)
+		box.Position = udim2New(0, 0, 0, 0)
+		box.BorderSizePixel = 0
+		box.Parent = gui
+		
+		-- // box stroke
+		local stroke = instanceNew("UIStroke")
+		stroke.Name = "Stroke"
+		stroke.Thickness = 1.1
+		stroke.Color = color3FromRGB(255, 255, 255)
+		stroke.Parent = box
+		
+		-- // box gradient
+		local gradient = instanceNew("UIGradient")
+		gradient.Name = "Gradient"
+		gradient.Rotation = 90
+		gradient.Color = ColorSequence.new({
+			colorSequenceKeypoint(0, color3FromRGB(255, 255, 255)),
+			colorSequenceKeypoint(0.33, color3FromRGB(255, 255, 255)),
+			colorSequenceKeypoint(0.66, color3FromRGB(255, 255, 255)),
+			colorSequenceKeypoint(1, color3FromRGB(255, 255, 255))
+		})
+		gradient.Parent = stroke
+		
+		-- // outline frame
+		local outlineFrame = instanceNew("Frame")
+		outlineFrame.Name = "OutlineFrame"
+		outlineFrame.BackgroundTransparency = 1
+		outlineFrame.Size = udim2New(1, 2, 1, 2)
+		outlineFrame.Position = udim2New(0, -1, 0, -1)
+		outlineFrame.BorderSizePixel = 0
+		outlineFrame.Parent = box
+		
+		local outlineStroke = instanceNew("UIStroke")
+		outlineStroke.Name = "OutlineStroke"
+		outlineStroke.Thickness = 0.9
+		outlineStroke.Color = color3FromRGB(0, 0, 0)
+		outlineStroke.Parent = outlineFrame
+		
+		-- // inline frame
+		local inlineFrame = instanceNew("Frame")
+		inlineFrame.Name = "InlineFrame"
+		inlineFrame.BackgroundTransparency = 1
+		inlineFrame.Size = udim2New(1, -2, 1, -2)
+		inlineFrame.Position = udim2New(0, 1, 0, 1)
+		inlineFrame.BorderSizePixel = 0
+		inlineFrame.Parent = box
+		
+		local inlineStroke = instanceNew("UIStroke")
+		inlineStroke.Name = "InlineStroke"
+		inlineStroke.Thickness = 0.9
+		inlineStroke.Color = color3FromRGB(0, 0, 0)
+		inlineStroke.Parent = inlineFrame
+		
+		-- // filled frame
+		local filledFrame = instanceNew("Frame")
+		filledFrame.Name = "FilledFrame"
+		filledFrame.BackgroundTransparency = 0.5
+		filledFrame.BackgroundColor3 = color3FromRGB(0, 0, 0)
+		filledFrame.BorderSizePixel = 0
+		filledFrame.Size = udim2New(1, 0, 1, 0)
+		filledFrame.Position = udim2New(0, 0, 0, 0)
+		filledFrame.ZIndex = -1
+		filledFrame.Visible = false
+		filledFrame.Parent = box
+		
+		-- // healthbar outline
+		local healthBarOutline = instanceNew("Frame")
+		healthBarOutline.Name = "HealthBarOutline_" .. player.Name
+		healthBarOutline.BackgroundColor3 = color3FromRGB(0, 0, 0)
+		healthBarOutline.BorderSizePixel = 0
+		healthBarOutline.Visible = false
+		healthBarOutline.Parent = gui
+		
+		local healthBarOutlineStroke = instanceNew("UIStroke")
+		healthBarOutlineStroke.Name = "OutlineStroke"
+		healthBarOutlineStroke.Thickness = 0.9
+		healthBarOutlineStroke.Color = color3FromRGB(0, 0, 0)
+		healthBarOutlineStroke.Parent = healthBarOutline
+		
+		-- // healthbar fill
+		local healthBarFill = instanceNew("Frame")
+		healthBarFill.Name = "HealthBarFill"
+		healthBarFill.BackgroundTransparency = 0
+		healthBarFill.BorderSizePixel = 0
+		healthBarFill.AnchorPoint = vector2New(0, 1)
+		healthBarFill.Position = udim2New(0, 0, 1, 0)
+		healthBarFill.Size = udim2New(1, 0, 1, 0)
+		healthBarFill.Parent = healthBarOutline
+		
+		local healthBarGradient = instanceNew("UIGradient")
+		healthBarGradient.Name = "HealthBarGradient"
+		healthBarGradient.Rotation = 90
+		healthBarGradient.Color = ColorSequence.new({
+			colorSequenceKeypoint(0, color3FromRGB(0, 255, 0)),
+			colorSequenceKeypoint(0.33, color3FromRGB(0, 255, 0)),
+			colorSequenceKeypoint(0.66, color3FromRGB(0, 255, 0)),
+			colorSequenceKeypoint(1, color3FromRGB(0, 255, 0))
+		})
+		healthBarGradient.Parent = healthBarFill
+		
+		-- // armorbar outline
+		local armorBarOutline = instanceNew("Frame")
+		armorBarOutline.Name = "ArmorBarOutline_" .. player.Name
+		armorBarOutline.BackgroundColor3 = color3FromRGB(0, 0, 0)
+		armorBarOutline.BorderSizePixel = 0
+		armorBarOutline.Visible = false
+		armorBarOutline.Parent = gui
+		
+		local armorBarOutlineStroke = instanceNew("UIStroke")
+		armorBarOutlineStroke.Name = "OutlineStroke"
+		armorBarOutlineStroke.Thickness = 0.9
+		armorBarOutlineStroke.Color = color3FromRGB(0, 0, 0)
+		armorBarOutlineStroke.Parent = armorBarOutline
+		
+		-- // armorbar fill
+		local armorBarFill = instanceNew("Frame")
+		armorBarFill.Name = "ArmorBarFill"
+		armorBarFill.BackgroundTransparency = 0
+		armorBarFill.BorderSizePixel = 0
+		armorBarFill.AnchorPoint = vector2New(0, 1)
+		armorBarFill.Position = udim2New(0, 0, 1, 0)
+		armorBarFill.Size = udim2New(1, 0, 1, 0)
+		armorBarFill.Parent = armorBarOutline
+		
+		local armorBarGradient = instanceNew("UIGradient")
+		armorBarGradient.Name = "ArmorBarGradient"
+		armorBarGradient.Rotation = 90
+		armorBarGradient.Color = ColorSequence.new({
+			colorSequenceKeypoint(0, color3FromRGB(0, 150, 255)),
+			colorSequenceKeypoint(0.33, color3FromRGB(0, 150, 255)),
+			colorSequenceKeypoint(0.66, color3FromRGB(0, 150, 255)),
+			colorSequenceKeypoint(1, color3FromRGB(0, 150, 255))
+		})
+		armorBarGradient.Parent = armorBarFill
+		
+		-- // flags container
+		local flagsContainer = instanceNew("Frame")
+		flagsContainer.Name = "FlagsContainer_" .. player.Name
+		flagsContainer.BackgroundTransparency = 1
+		flagsContainer.BorderSizePixel = 0
+		flagsContainer.Visible = false
+		flagsContainer.Parent = gui
+		
+		local nicknameText = instanceNew("TextLabel")
+		nicknameText.Name = "NicknameText"
+		nicknameText.BackgroundTransparency = 1
+		nicknameText.BorderSizePixel = 0
+		nicknameText.TextColor3 = color3FromRGB(255, 255, 255)
+		nicknameText.TextStrokeTransparency = 0.5
+		nicknameText.TextStrokeColor3 = color3FromRGB(0, 0, 0)
+		nicknameText.TextSize = 11
+		nicknameText.TextScaled = false
+		nicknameText.Text = ""
+		nicknameText.TextXAlignment = Enum.TextXAlignment.Left
+		nicknameText.TextYAlignment = Enum.TextYAlignment.Top
+		nicknameText.Visible = false
+		if framework.libraryFont then
+			nicknameText.FontFace = framework.libraryFont
+		end
+		nicknameText.Parent = flagsContainer
+		
+		local nicknameGradient = instanceNew("UIGradient")
+		nicknameGradient.Name = "NicknameGradient"
+		nicknameGradient.Rotation = 0
+		nicknameGradient.Color = ColorSequence.new({
+			colorSequenceKeypoint(0, color3FromRGB(255, 255, 255)),
+			colorSequenceKeypoint(1, color3FromRGB(255, 255, 255))
+		})
+		nicknameGradient.Parent = nicknameText
+		
+		local displayNameText = instanceNew("TextLabel")
+		displayNameText.Name = "DisplayNameText"
+		displayNameText.BackgroundTransparency = 1
+		displayNameText.BorderSizePixel = 0
+		displayNameText.TextColor3 = color3FromRGB(255, 255, 255)
+		displayNameText.TextStrokeTransparency = 0.5
+		displayNameText.TextStrokeColor3 = color3FromRGB(0, 0, 0)
+		displayNameText.TextSize = 11
+		displayNameText.TextScaled = false
+		displayNameText.Text = ""
+		displayNameText.TextXAlignment = Enum.TextXAlignment.Left
+		displayNameText.TextYAlignment = Enum.TextYAlignment.Top
+		displayNameText.Visible = false
+		if framework.libraryFont then
+			displayNameText.FontFace = framework.libraryFont
+		end
+		displayNameText.Parent = flagsContainer
+		
+		local displayNameGradient = instanceNew("UIGradient")
+		displayNameGradient.Name = "DisplayNameGradient"
+		displayNameGradient.Rotation = 0
+		displayNameGradient.Color = ColorSequence.new({
+			colorSequenceKeypoint(0, color3FromRGB(255, 255, 255)),
+			colorSequenceKeypoint(1, color3FromRGB(255, 255, 255))
+		})
+		displayNameGradient.Parent = displayNameText
+		
+		local healthPercentText = instanceNew("TextLabel")
+		healthPercentText.Name = "HealthPercentText"
+		healthPercentText.BackgroundTransparency = 1
+		healthPercentText.BorderSizePixel = 0
+		healthPercentText.TextColor3 = color3FromRGB(255, 255, 255)
+		healthPercentText.TextStrokeTransparency = 0.5
+		healthPercentText.TextStrokeColor3 = color3FromRGB(0, 0, 0)
+		healthPercentText.TextSize = 11
+		healthPercentText.TextScaled = false
+		healthPercentText.Text = ""
+		healthPercentText.TextXAlignment = Enum.TextXAlignment.Left
+		healthPercentText.TextYAlignment = Enum.TextYAlignment.Top
+		healthPercentText.Visible = false
+		if framework.libraryFont then
+			healthPercentText.FontFace = framework.libraryFont
+		end
+		healthPercentText.Parent = flagsContainer
+		
+		local healthPercentGradient = instanceNew("UIGradient")
+		healthPercentGradient.Name = "HealthPercentGradient"
+		healthPercentGradient.Rotation = 0
+		healthPercentGradient.Color = ColorSequence.new({
+			colorSequenceKeypoint(0, color3FromRGB(255, 255, 255)),
+			colorSequenceKeypoint(1, color3FromRGB(255, 255, 255))
+		})
+		healthPercentGradient.Parent = healthPercentText
+		
+		local armorPercentText = instanceNew("TextLabel")
+		armorPercentText.Name = "ArmorPercentText"
+		armorPercentText.BackgroundTransparency = 1
+		armorPercentText.BorderSizePixel = 0
+		armorPercentText.TextColor3 = color3FromRGB(255, 255, 255)
+		armorPercentText.TextStrokeTransparency = 0.5
+		armorPercentText.TextStrokeColor3 = color3FromRGB(0, 0, 0)
+		armorPercentText.TextSize = 11
+		armorPercentText.TextScaled = false
+		armorPercentText.Text = ""
+		armorPercentText.TextXAlignment = Enum.TextXAlignment.Left
+		armorPercentText.TextYAlignment = Enum.TextYAlignment.Top
+		armorPercentText.Visible = false
+		if framework.libraryFont then
+			armorPercentText.FontFace = framework.libraryFont
+		end
+		armorPercentText.Parent = flagsContainer
+		
+		local armorPercentGradient = instanceNew("UIGradient")
+		armorPercentGradient.Name = "ArmorPercentGradient"
+		armorPercentGradient.Rotation = 0
+		armorPercentGradient.Color = ColorSequence.new({
+			colorSequenceKeypoint(0, color3FromRGB(255, 255, 255)),
+			colorSequenceKeypoint(1, color3FromRGB(255, 255, 255))
+		})
+		armorPercentGradient.Parent = armorPercentText
+		
+		return {
+			player = player,
+			box = box,
+			stroke = stroke,
+			gradient = gradient,
+			outlineFrame = outlineFrame,
+			outlineStroke = outlineStroke,
+			inlineFrame = inlineFrame,
+			inlineStroke = inlineStroke,
+			filledFrame = filledFrame,
+			character = character,
+			healthBarOutline = healthBarOutline,
+			healthBarOutlineStroke = healthBarOutlineStroke,
+			healthBarFill = healthBarFill,
+			healthBarGradient = healthBarGradient,
+			armorBarOutline = armorBarOutline,
+			armorBarOutlineStroke = armorBarOutlineStroke,
+			armorBarFill = armorBarFill,
+			armorBarGradient = armorBarGradient,
+			flagsContainer = flagsContainer,
+			nicknameText = nicknameText,
+			nicknameGradient = nicknameGradient,
+			displayNameText = displayNameText,
+			displayNameGradient = displayNameGradient,
+			healthPercentText = healthPercentText,
+			healthPercentGradient = healthPercentGradient,
+			armorPercentText = armorPercentText,
+			armorPercentGradient = armorPercentGradient,
+			lastHealth = 1,
+			lastArmor = 1
+		}
+	end
+	
+	function framework:removeBox(player)
+		local espData = espCache[player]
+		if espData then
+			if espData.box then
+				espData.box:Destroy()
+			end
+			if espData.healthBarOutline then
+				espData.healthBarOutline:Destroy()
+			end
+			if espData.armorBarOutline then
+				espData.armorBarOutline:Destroy()
+			end
+			if espData.flagsContainer then
+				espData.flagsContainer:Destroy()
+			end
+		end
+		espCache[player] = nil
+	end
+	
+	function framework:updateBox(espData, flags)
+		if not espData or not espData.character or not espData.box then return end
+		
+		local character = espData.character
+		-- // character validation
+		if not character.Parent then
+			espData.box.Visible = false
+			if espData.healthBarOutline then
+				espData.healthBarOutline.Visible = false
+			end
+			if espData.armorBarOutline then
+				espData.armorBarOutline.Visible = false
+			end
+			if espData.flagsContainer then
+				espData.flagsContainer.Visible = false
+			end
+			return
+		end
+		
+		local hrp = character:FindFirstChild("HumanoidRootPart")
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		
+		if not hrp then
+			espData.box.Visible = false
+			if espData.healthBarOutline then
+				espData.healthBarOutline.Visible = false
+			end
+			if espData.armorBarOutline then
+				espData.armorBarOutline.Visible = false
+			end
+			if espData.flagsContainer then
+				espData.flagsContainer.Visible = false
+			end
+			return
+		end
+		
+		-- // screen position
+		local boxPos, onScreen = currentCamera:WorldToViewportPoint(hrp.Position)
+		
+		if not onScreen then
+			espData.box.Visible = false
+			if espData.healthBarOutline then
+				espData.healthBarOutline.Visible = false
+			end
+			if espData.armorBarOutline then
+				espData.armorBarOutline.Visible = false
+			end
+			if espData.flagsContainer then
+				espData.flagsContainer.Visible = false
+			end
+			return
+		end
+		
+		-- // box dimensions
+		local sizeX = 2.5
+		local sizeY = 6
+		local sizeZ = 1.5
+		
+		-- // 8 corners calculation
+		local corners = {
+			currentCamera:WorldToViewportPoint((hrp.CFrame * cframe(-sizeX/2, -sizeY/2, -sizeZ/2)).Position),
+			currentCamera:WorldToViewportPoint((hrp.CFrame * cframe(sizeX/2, -sizeY/2, -sizeZ/2)).Position),
+			currentCamera:WorldToViewportPoint((hrp.CFrame * cframe(-sizeX/2, sizeY/2, -sizeZ/2)).Position),
+			currentCamera:WorldToViewportPoint((hrp.CFrame * cframe(sizeX/2, sizeY/2, -sizeZ/2)).Position),
+			currentCamera:WorldToViewportPoint((hrp.CFrame * cframe(-sizeX/2, -sizeY/2, sizeZ/2)).Position),
+			currentCamera:WorldToViewportPoint((hrp.CFrame * cframe(sizeX/2, -sizeY/2, sizeZ/2)).Position),
+			currentCamera:WorldToViewportPoint((hrp.CFrame * cframe(-sizeX/2, sizeY/2, sizeZ/2)).Position),
+			currentCamera:WorldToViewportPoint((hrp.CFrame * cframe(sizeX/2, sizeY/2, sizeZ/2)).Position)
+		}
+		
+		-- // min/max coordinates
+		local minX, minY = mathHuge, mathHuge
+		local maxX, maxY = -mathHuge, -mathHuge
+		
+		for i = 1, 8 do
+			local corner = corners[i]
+			minX = mathMin(minX, corner.X)
+			minY = mathMin(minY, corner.Y)
+			maxX = mathMax(maxX, corner.X)
+			maxY = mathMax(maxY, corner.Y)
+		end
+		
+		local boxWidth = maxX - minX
+		local boxHeight = maxY - minY
+		local boxX = minX
+		local boxY = minY
+		
+		-- // save position for bars
+		espData.lastBoxX = boxX
+		espData.lastBoxY = boxY
+		espData.lastBoxWidth = boxWidth
+		espData.lastBoxHeight = boxHeight
+		
+		-- // update box
+		local boxEnabled = flags and flags["Box_Enabled"] or false
+		espData.box.Visible = boxEnabled
+		if boxEnabled then
+			espData.box.Position = udim2New(0, boxX, 0, boxY)
+			espData.box.Size = udim2New(0, boxWidth, 0, boxHeight)
+		end
+		
+		-- // update healthbar
+		local healthEnabled = flags and flags["Health_Enabled"] or false
+		if healthEnabled and humanoid and espData.healthBarFill and espData.healthBarOutline and espData.lastBoxX then
+			local currentHealth = mathMin(humanoid.Health / humanoid.MaxHealth, 1)
+			local lastHealth = espData.lastHealth or currentHealth
+			local lerpedHealth = lastHealth + (currentHealth - lastHealth) * 0.05
+			espData.lastHealth = lerpedHealth
+			
+			-- // dynamic offset
+			local distance = (hrp.Position - currentCamera.CFrame.Position).Magnitude
+			local baseOffset = 4.1
+			local scaleFactor = mathClamp(1 + (distance / 100) * 0.2, 1, 1.2)
+			local dynamicOffset = baseOffset * scaleFactor
+			
+			-- // bar width
+			local barWidth = 0.6
+			
+			-- // healthbar position
+			local barX = espData.lastBoxX - dynamicOffset - barWidth - 1
+			local barY = espData.lastBoxY - 1
+			local barHeight = espData.lastBoxHeight + 2
+			
+			espData.healthBarOutline.Position = udim2New(0, barX, 0, barY)
+			espData.healthBarOutline.Size = udim2New(0, barWidth + 2, 0, barHeight)
+			espData.healthBarOutline.Visible = true
+			
+			-- // outline visibility
+			if espData.healthBarOutlineStroke then
+				local outlineEnabled = flags and flags["Health_Outline_Enabled"]
+				if outlineEnabled ~= nil then
+					espData.healthBarOutlineStroke.Enabled = outlineEnabled
+				end
+			end
+			
+			-- // healthbar fill
+			espData.healthBarFill.Size = udim2New(1, 0, lerpedHealth, 0)
+		else
+			if espData.healthBarOutline then
+				espData.healthBarOutline.Visible = false
+			end
+		end
+		
+		-- // update armorbar
+		local armorEnabled = flags and flags["Armor_Enabled"] or false
+		if armorEnabled and espData.armorBarFill and espData.armorBarOutline and espData.lastBoxX then
+			-- // get armor value
+			local armorValue = 0
+			local workspacePlayers = workspace:FindFirstChild("Players")
+			if workspacePlayers then
+				local playerFolder = workspacePlayers:FindFirstChild(espData.player.Name)
+				if playerFolder then
+					local bodyEffects = playerFolder:FindFirstChild("BodyEffects")
+					if bodyEffects then
+						local armorIntValue = bodyEffects:FindFirstChild("Armor")
+						if armorIntValue and armorIntValue:IsA("IntValue") then
+							armorValue = armorIntValue.Value
+						end
+					end
+				end
+			end
+			
+			local currentArmor = mathMin(armorValue / 130, 1)
+			local lastArmor = espData.lastArmor or currentArmor
+			local lerpedArmor = lastArmor + (currentArmor - lastArmor) * 0.05
+			espData.lastArmor = lerpedArmor
+			
+			-- // dynamic offset
+			local distance = (hrp.Position - currentCamera.CFrame.Position).Magnitude
+			local baseOffset = 4.1
+			local scaleFactor = mathClamp(1 + (distance / 100) * 0.2, 1, 1.2)
+			local dynamicOffset = baseOffset * scaleFactor
+			
+			-- // bar width
+			local barWidth = 0.6
+			
+			-- // armorbar position
+			local barX = espData.lastBoxX + espData.lastBoxWidth + dynamicOffset
+			local barY = espData.lastBoxY - 1
+			local barHeight = espData.lastBoxHeight + 2
+			
+			espData.armorBarOutline.Position = udim2New(0, barX, 0, barY)
+			espData.armorBarOutline.Size = udim2New(0, barWidth + 2, 0, barHeight)
+			espData.armorBarOutline.Visible = true
+			
+			-- // outline visibility
+			if espData.armorBarOutlineStroke then
+				local outlineEnabled = flags and flags["Armor_Outline_Enabled"]
+				if outlineEnabled ~= nil then
+					espData.armorBarOutlineStroke.Enabled = outlineEnabled
+				end
+			end
+			
+			-- // armorbar fill
+			espData.armorBarFill.Size = udim2New(1, 0, lerpedArmor, 0)
+		else
+			if espData.armorBarOutline then
+				espData.armorBarOutline.Visible = false
+			end
+		end
+		
+		-- // update flags
+		local flagsEnabled = flags and (flags["Flags_Nickname"] or flags["Flags_DisplayName"] or flags["Flags_HealthPercent"] or flags["Flags_ArmorPercent"])
+		if flagsEnabled and espData.flagsContainer and espData.lastBoxX then
+			-- // flags positioning
+			local textX = espData.lastBoxX
+			local textY = espData.lastBoxY + espData.lastBoxHeight + 2
+			local currentY = 0
+			
+			-- // nickname
+			if flags["Flags_Nickname"] and espData.nicknameText then
+				espData.nicknameText.Text = espData.player.Name
+				espData.nicknameText.Position = udim2New(0, 0, 0, currentY)
+				espData.nicknameText.Size = udim2New(0, 200, 0, 14)
+				espData.nicknameText.Visible = true
+				-- // apply gradient
+				if espData.nicknameGradient and flags["Flags_Nickname_Color1"] and flags["Flags_Nickname_Color2"] then
+					espData.nicknameGradient.Color = ColorSequence.new({
+						colorSequenceKeypoint(0, flags["Flags_Nickname_Color1"].Color),
+						colorSequenceKeypoint(1, flags["Flags_Nickname_Color2"].Color)
+					})
+				end
+				currentY = currentY + 14
+			else
+				if espData.nicknameText then
+					espData.nicknameText.Visible = false
+				end
+			end
+			
+			-- // displayname
+			if flags["Flags_DisplayName"] and espData.displayNameText then
+				local displayName = espData.player.DisplayName
+				if displayName and displayName ~= "" then
+					espData.displayNameText.Text = displayName
+					espData.displayNameText.Position = udim2New(0, 0, 0, currentY)
+					espData.displayNameText.Size = udim2New(0, 200, 0, 14)
+					espData.displayNameText.Visible = true
+					-- // apply gradient
+					if espData.displayNameGradient and flags["Flags_DisplayName_Color1"] and flags["Flags_DisplayName_Color2"] then
+						espData.displayNameGradient.Color = ColorSequence.new({
+							colorSequenceKeypoint(0, flags["Flags_DisplayName_Color1"].Color),
+							colorSequenceKeypoint(1, flags["Flags_DisplayName_Color2"].Color)
+						})
+					end
+					currentY = currentY + 14
+				else
+					espData.displayNameText.Visible = false
+				end
+			else
+				if espData.displayNameText then
+					espData.displayNameText.Visible = false
+				end
+			end
+			
+			-- // health percent
+			if flags["Flags_HealthPercent"] and espData.healthPercentText and humanoid then
+				local healthPercent = mathFloor((humanoid.Health / humanoid.MaxHealth) * 100)
+				espData.healthPercentText.Text = healthPercent .. "%"
+				espData.healthPercentText.Position = udim2New(0, 0, 0, currentY)
+				espData.healthPercentText.Size = udim2New(0, 200, 0, 14)
+				espData.healthPercentText.Visible = true
+				-- // apply gradient
+				if espData.healthPercentGradient and flags["Flags_HealthPercent_Color1"] and flags["Flags_HealthPercent_Color2"] then
+					espData.healthPercentGradient.Color = ColorSequence.new({
+						colorSequenceKeypoint(0, flags["Flags_HealthPercent_Color1"].Color),
+						colorSequenceKeypoint(1, flags["Flags_HealthPercent_Color2"].Color)
+					})
+				end
+				currentY = currentY + 14
+			else
+				if espData.healthPercentText then
+					espData.healthPercentText.Visible = false
+				end
+			end
+			
+			-- // armor percent
+			if flags["Flags_ArmorPercent"] and espData.armorPercentText then
+				-- Получаем броню из workspace.Players.[PlayerName].BodyEffects.Armor
+				local armorValue = 0
+				local workspacePlayers = workspace:FindFirstChild("Players")
+				if workspacePlayers then
+					local playerFolder = workspacePlayers:FindFirstChild(espData.player.Name)
+					if playerFolder then
+						local bodyEffects = playerFolder:FindFirstChild("BodyEffects")
+						if bodyEffects then
+							local armorIntValue = bodyEffects:FindFirstChild("Armor")
+							if armorIntValue and armorIntValue:IsA("IntValue") then
+								armorValue = armorIntValue.Value
+							end
+						end
+					end
+				end
+				
+				local armorPercent = mathFloor((armorValue / 130) * 100)
+				espData.armorPercentText.Text = armorPercent .. "%"
+				espData.armorPercentText.Position = udim2New(0, 0, 0, currentY)
+				espData.armorPercentText.Size = udim2New(0, 200, 0, 14)
+				espData.armorPercentText.Visible = true
+				-- // apply gradient
+				if espData.armorPercentGradient and flags["Flags_ArmorPercent_Color1"] and flags["Flags_ArmorPercent_Color2"] then
+					espData.armorPercentGradient.Color = ColorSequence.new({
+						colorSequenceKeypoint(0, flags["Flags_ArmorPercent_Color1"].Color),
+						colorSequenceKeypoint(1, flags["Flags_ArmorPercent_Color2"].Color)
+					})
+				end
+				currentY = currentY + 14
+			else
+				if espData.armorPercentText then
+					espData.armorPercentText.Visible = false
+				end
+			end
+			
+			-- // container positioning
+			espData.flagsContainer.Position = udim2New(0, textX, 0, textY)
+			espData.flagsContainer.Size = udim2New(0, 200, 0, currentY)
+			espData.flagsContainer.Visible = true
+		else
+			if espData.flagsContainer then
+				espData.flagsContainer.Visible = false
+			end
+		end
+	end
+	
+	function framework:getESP(player)
+		return espCache[player]
+	end
+	
+	function framework:setESP(player, espData)
+		espCache[player] = espData
+	end
+	
+	function framework:clearAll()
+		for player, espData in pairs(espCache) do
+			if espData.box then
+				espData.box:Destroy()
+			end
+			if espData.healthBarOutline then
+				espData.healthBarOutline:Destroy()
+			end
+			if espData.armorBarOutline then
+				espData.armorBarOutline:Destroy()
+			end
+			if espData.flagsContainer then
+				espData.flagsContainer:Destroy()
+			end
+		end
+		espCache = {}
+	end
+	
+	function framework:updateAllBoxes(flags)
+		for player, espData in pairs(espCache) do
+			framework:updateBox(espData, flags)
+		end
+	end
+	
+	function framework:applySettings(espData, flags)
+		if not espData then return end
+		
+		-- Градиент
+		if espData.gradient then
+			local c1 = flags["Box_Color_1"] and flags["Box_Color_1"].Color or color3FromRGB(255, 255, 255)
+			local c2 = flags["Box_Color_2"] and flags["Box_Color_2"].Color or color3FromRGB(255, 255, 255)
+			local c3 = flags["Box_Color_3"] and flags["Box_Color_3"].Color or color3FromRGB(255, 255, 255)
+			local c4 = flags["Box_Color_4"] and flags["Box_Color_4"].Color or color3FromRGB(255, 255, 255)
+			espData.gradient.Color = ColorSequence.new({
+				colorSequenceKeypoint(0, c1),
+				colorSequenceKeypoint(0.33, c2),
+				colorSequenceKeypoint(0.66, c3),
+				colorSequenceKeypoint(1, c4)
+			})
+			if flags["Box_Gradient_Rotation"] then
+				espData.gradient.Rotation = flags["Box_Gradient_Rotation"]
+			end
+		end
+		
+		-- // outline settings
+		if flags["Box_Outline_Color"] then
+			espData.outlineStroke.Color = flags["Box_Outline_Color"].Color
+			espData.inlineStroke.Color = flags["Box_Outline_Color"].Color
+		end
+		if flags["Box_Outline_Enabled"] ~= nil then
+			espData.outlineFrame.Visible = flags["Box_Outline_Enabled"]
+			espData.inlineFrame.Visible = flags["Box_Outline_Enabled"]
+		end
+		
+		-- // filled settings
+		if flags["Box_Filled_Enabled"] ~= nil then
+			espData.filledFrame.Visible = flags["Box_Filled_Enabled"]
+		end
+		if flags["Box_Filled_Color"] then
+			if flags["Box_Filled_Color"].Color then
+				espData.filledFrame.BackgroundColor3 = flags["Box_Filled_Color"].Color
+			end
+			if flags["Box_Filled_Color"].Transparency ~= nil then
+				espData.filledFrame.BackgroundTransparency = flags["Box_Filled_Color"].Transparency
+			end
+		end
+		
+		-- Healthbar
+		if espData.healthBarGradient then
+			local hc1 = flags["Health_Color_1"] and flags["Health_Color_1"].Color or color3FromRGB(0, 255, 0)
+			local hc2 = flags["Health_Color_2"] and flags["Health_Color_2"].Color or color3FromRGB(0, 255, 0)
+			local hc3 = flags["Health_Color_3"] and flags["Health_Color_3"].Color or color3FromRGB(0, 255, 0)
+			local hc4 = flags["Health_Color_4"] and flags["Health_Color_4"].Color or color3FromRGB(0, 255, 0)
+			espData.healthBarGradient.Color = ColorSequence.new({
+				colorSequenceKeypoint(0, hc1),
+				colorSequenceKeypoint(0.33, hc2),
+				colorSequenceKeypoint(0.66, hc3),
+				colorSequenceKeypoint(1, hc4)
+			})
+		end
+		
+		-- // healthbar outline settings
+		if espData.healthBarOutlineStroke and flags["Health_Outline_Color"] then
+			espData.healthBarOutlineStroke.Color = flags["Health_Outline_Color"].Color
+		end
+		
+		-- // armorbar settings
+		if espData.armorBarGradient then
+			local ac1 = flags["Armor_Color_1"] and flags["Armor_Color_1"].Color or color3FromRGB(0, 150, 255)
+			local ac2 = flags["Armor_Color_2"] and flags["Armor_Color_2"].Color or color3FromRGB(0, 150, 255)
+			local ac3 = flags["Armor_Color_3"] and flags["Armor_Color_3"].Color or color3FromRGB(0, 150, 255)
+			local ac4 = flags["Armor_Color_4"] and flags["Armor_Color_4"].Color or color3FromRGB(0, 150, 255)
+			espData.armorBarGradient.Color = ColorSequence.new({
+				colorSequenceKeypoint(0, ac1),
+				colorSequenceKeypoint(0.33, ac2),
+				colorSequenceKeypoint(0.66, ac3),
+				colorSequenceKeypoint(1, ac4)
+			})
+		end
+		
+		-- // armorbar outline settings
+		if espData.armorBarOutlineStroke and flags["Armor_Outline_Color"] then
+			espData.armorBarOutlineStroke.Color = flags["Armor_Outline_Color"].Color
+		end
+		
+		-- // flags settings
+	end
+end
+
+-- // library initialization
+do
+	local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/OnChangedCallback/loader/refs/heads/main/Library"))()
+	local Window = Library:Window({
+	    Name = "R4ze.pub rewrite",
+	    Size = udim2New(0, 700, 0, 600),
+	    FadeSpeed = 0.25
+	})
+	
+	-- // set esp font
+	framework.libraryFont = Library.Font
+
+	local Watermark = Library:Watermark("R4ze.pub rewrite | ".. osDate("%b %d %Y") .. " | ".. marketplaceService:GetProductInfo(game.PlaceId).Name)
+	local KeybindList = Library:KeybindList()
+
+	Watermark:SetVisibility(false)
+	KeybindList:SetVisibility(false)
+	local CombatTab = Window:Page({Name = "Combat", Columns = 2, Subtabs = false})
+    local VisualsTab = Window:Page({Name = "Visuals", Columns = 2, Subtabs = false})
+    local SettingsTab = Window:Page({Name = "Settings", Columns = 3, Subtabs = false})
+
+
+	
+	-- // visuals tab funcs and ui
+	do
+		-- // esp multisection
+		local BoxSection, HealthSection, ArmorSection, FlagsSection = VisualsTab:MultiSection({
+			Sections = {"Box", "Health", "Armor", "Flags"},
+			Side = 1
+		})
+		
+		-- // box tab
+		do
+			local boxToggle = BoxSection:Toggle({
+				Name = "Box ESP",
+				Default = false,
+				Flag = "Box_Enabled",
+				Callback = function(value)
+					if value then
+						-- // create esp for all players
+						for _, player in pairs(players:GetPlayers()) do
+							if player ~= localPlayer and player.Character then
+								local espData = framework:getESP(player)
+								if not espData then
+									espData = framework:createBox(player)
+									if espData then
+										framework:setESP(player, espData)
+										framework:applySettings(espData, Library.Flags)
+									end
+								end
+							end
+						end
+					else
+						-- // clear esp if disabled
+						if not Library.Flags["Health_Enabled"] then
+							framework:clearAll()
+						end
+					end
+				end
+			})
+			
+			boxToggle:Colorpicker({
+				Name = "Box Color 1",
+				Default = color3FromRGB(255, 255, 255),
+				Flag = "Box_Color_1",
+				Callback = function(color)
+					if not Library.Flags["Box_Enabled"] then return end
+					-- // update gradient
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData and espData.gradient then
+							local c2 = Library.Flags["Box_Color_2"] and Library.Flags["Box_Color_2"].Color or color3FromRGB(255, 255, 255)
+							local c3 = Library.Flags["Box_Color_3"] and Library.Flags["Box_Color_3"].Color or color3FromRGB(255, 255, 255)
+							local c4 = Library.Flags["Box_Color_4"] and Library.Flags["Box_Color_4"].Color or color3FromRGB(255, 255, 255)
+							espData.gradient.Color = ColorSequence.new({
+								colorSequenceKeypoint(0, color),
+								colorSequenceKeypoint(0.33, c2),
+								colorSequenceKeypoint(0.66, c3),
+								colorSequenceKeypoint(1, c4)
+							})
+						end
+					end
+				end
+			})
+			
+			boxToggle:Colorpicker({
+				Name = "Box Color 2",
+				Default = color3FromRGB(255, 255, 255),
+				Flag = "Box_Color_2",
+				Callback = function(color)
+					if not Library.Flags["Box_Enabled"] then return end
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData and espData.gradient then
+							local c1 = Library.Flags["Box_Color_1"] and Library.Flags["Box_Color_1"].Color or color3FromRGB(255, 255, 255)
+							local c3 = Library.Flags["Box_Color_3"] and Library.Flags["Box_Color_3"].Color or color3FromRGB(255, 255, 255)
+							local c4 = Library.Flags["Box_Color_4"] and Library.Flags["Box_Color_4"].Color or color3FromRGB(255, 255, 255)
+							espData.gradient.Color = ColorSequence.new({
+								colorSequenceKeypoint(0, c1),
+								colorSequenceKeypoint(0.33, color),
+								colorSequenceKeypoint(0.66, c3),
+								colorSequenceKeypoint(1, c4)
+							})
+						end
+					end
+				end
+			})
+			
+			boxToggle:Colorpicker({
+				Name = "Box Color 3",
+				Default = color3FromRGB(255, 255, 255),
+				Flag = "Box_Color_3",
+				Callback = function(color)
+					if not Library.Flags["Box_Enabled"] then return end
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData and espData.gradient then
+							local c1 = Library.Flags["Box_Color_1"] and Library.Flags["Box_Color_1"].Color or color3FromRGB(255, 255, 255)
+							local c2 = Library.Flags["Box_Color_2"] and Library.Flags["Box_Color_2"].Color or color3FromRGB(255, 255, 255)
+							local c4 = Library.Flags["Box_Color_4"] and Library.Flags["Box_Color_4"].Color or color3FromRGB(255, 255, 255)
+							espData.gradient.Color = ColorSequence.new({
+								colorSequenceKeypoint(0, c1),
+								colorSequenceKeypoint(0.33, c2),
+								colorSequenceKeypoint(0.66, color),
+								colorSequenceKeypoint(1, c4)
+							})
+						end
+					end
+				end
+			})
+			
+			boxToggle:Colorpicker({
+				Name = "Box Color 4",
+				Default = color3FromRGB(255, 255, 255),
+				Flag = "Box_Color_4",
+				Callback = function(color)
+					if not Library.Flags["Box_Enabled"] then return end
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData and espData.gradient then
+							local c1 = Library.Flags["Box_Color_1"] and Library.Flags["Box_Color_1"].Color or color3FromRGB(255, 255, 255)
+							local c2 = Library.Flags["Box_Color_2"] and Library.Flags["Box_Color_2"].Color or color3FromRGB(255, 255, 255)
+							local c3 = Library.Flags["Box_Color_3"] and Library.Flags["Box_Color_3"].Color or color3FromRGB(255, 255, 255)
+							espData.gradient.Color = ColorSequence.new({
+								colorSequenceKeypoint(0, c1),
+								colorSequenceKeypoint(0.33, c2),
+								colorSequenceKeypoint(0.66, c3),
+								colorSequenceKeypoint(1, color)
+							})
+						end
+					end
+				end
+			})
+			
+			BoxSection:Slider({
+				Name = "Rotate",
+				Min = 0,
+				Max = 360,
+				Decimals = 1,
+				Default = 90,
+				Flag = "Box_Gradient_Rotation",
+				Callback = function(value)
+					if not Library.Flags["Box_Enabled"] then return end
+					-- // update gradient rotation
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData and espData.gradient then
+							espData.gradient.Rotation = value
+						end
+					end
+				end
+			})
+			
+			local outlineToggle = BoxSection:Toggle({
+				Name = "Box Outline",
+				Default = true,
+				Flag = "Box_Outline_Enabled",
+				Callback = function(value)
+					if not Library.Flags["Box_Enabled"] then return end
+					-- // update outline visibility
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData then
+							if espData.outlineFrame then
+								espData.outlineFrame.Visible = value
+							end
+							if espData.inlineFrame then
+								espData.inlineFrame.Visible = value
+							end
+						end
+					end
+				end
+			})
+			
+			outlineToggle:Colorpicker({
+				Name = "Outline Color",
+				Default = color3FromRGB(0, 0, 0),
+				Flag = "Box_Outline_Color",
+				Callback = function(color)
+					if not Library.Flags["Box_Enabled"] then return end
+					-- // update outline color
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData then
+							if espData.outlineStroke then
+								espData.outlineStroke.Color = color
+							end
+							if espData.inlineStroke then
+								espData.inlineStroke.Color = color
+							end
+						end
+					end
+				end
+			})
+			
+			local filledToggle = BoxSection:Toggle({
+				Name = "Filled",
+				Default = false,
+				Flag = "Box_Filled_Enabled",
+				Callback = function(value)
+					if not Library.Flags["Box_Enabled"] then return end
+					-- // update filled visibility
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData and espData.filledFrame then
+							espData.filledFrame.Visible = value
+						end
+					end
+				end
+			})
+			
+			filledToggle:Colorpicker({
+				Name = "Filled Color",
+				Default = color3FromRGB(0, 0, 0),
+				Transparency = 0.5,
+				Flag = "Box_Filled_Color",
+				Callback = function(color, transparency)
+					if not Library.Flags["Box_Enabled"] then return end
+					-- // update filled color
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData and espData.filledFrame then
+							espData.filledFrame.BackgroundColor3 = color
+							espData.filledFrame.BackgroundTransparency = transparency
+						end
+					end
+				end
+			})
+		end
+		
+		-- // health tab
+		do
+			local healthToggle = HealthSection:Toggle({
+				Name = "Health Bar",
+				Default = false,
+				Flag = "Health_Enabled",
+				Callback = function(value)
+					if value then
+						-- // create esp for all players
+						for _, player in pairs(players:GetPlayers()) do
+							if player ~= localPlayer and player.Character then
+								local espData = framework:getESP(player)
+								if not espData then
+									espData = framework:createBox(player)
+									if espData then
+										framework:setESP(player, espData)
+										framework:applySettings(espData, Library.Flags)
+									end
+								end
+							end
+						end
+					else
+						-- // clear esp if all disabled
+						if not Library.Flags["Box_Enabled"] then
+							framework:clearAll()
+						else
+							-- // hide healthbar only
+							for _, player in pairs(players:GetPlayers()) do
+								local espData = framework:getESP(player)
+								if espData and espData.healthBarOutline then
+									espData.healthBarOutline.Visible = false
+								end
+							end
+						end
+					end
+				end
+			})
+			
+			healthToggle:Colorpicker({
+				Name = "Health Color 1",
+				Default = color3FromRGB(0, 255, 0),
+				Flag = "Health_Color_1",
+				Callback = function(color)
+					framework:applySettings(nil, Library.Flags)
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData then framework:applySettings(espData, Library.Flags) end
+					end
+				end
+			})
+			
+			healthToggle:Colorpicker({
+				Name = "Health Color 2",
+				Default = color3FromRGB(0, 255, 0),
+				Flag = "Health_Color_2",
+				Callback = function(color)
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData then framework:applySettings(espData, Library.Flags) end
+					end
+				end
+			})
+			
+			healthToggle:Colorpicker({
+				Name = "Health Color 3",
+				Default = color3FromRGB(0, 255, 0),
+				Flag = "Health_Color_3",
+				Callback = function(color)
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData then framework:applySettings(espData, Library.Flags) end
+					end
+				end
+			})
+			
+			healthToggle:Colorpicker({
+				Name = "Health Color 4",
+				Default = color3FromRGB(0, 255, 0),
+				Flag = "Health_Color_4",
+				Callback = function(color)
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData then framework:applySettings(espData, Library.Flags) end
+					end
+				end
+			})
+			
+			local outlineToggle = HealthSection:Toggle({
+				Name = "Outline",
+				Default = true,
+				Flag = "Health_Outline_Enabled",
+				Callback = function(value)
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData and espData.healthBarOutlineStroke then
+							espData.healthBarOutlineStroke.Enabled = value
+						end
+					end
+				end
+			})
+			
+			outlineToggle:Colorpicker({
+				Name = "Outline Color",
+				Default = color3FromRGB(0, 0, 0),
+				Flag = "Health_Outline_Color",
+				Callback = function(color)
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData then framework:applySettings(espData, Library.Flags) end
+					end
+				end
+			})
+		end
+		
+		-- // armor tab
+		do
+			local armorToggle = ArmorSection:Toggle({
+				Name = "Armor Bar",
+				Default = false,
+				Flag = "Armor_Enabled",
+				Callback = function(value)
+					if value then
+						-- // create esp for all players
+						for _, player in pairs(players:GetPlayers()) do
+							if player ~= localPlayer and player.Character then
+								local espData = framework:getESP(player)
+								if not espData then
+									espData = framework:createBox(player)
+									if espData then
+										framework:setESP(player, espData)
+										framework:applySettings(espData, Library.Flags)
+									end
+								end
+							end
+						end
+					else
+						-- // clear esp if all disabled
+						if not Library.Flags["Box_Enabled"] and not Library.Flags["Health_Enabled"] then
+							framework:clearAll()
+						else
+							-- // hide armorbar only
+							for _, player in pairs(players:GetPlayers()) do
+								local espData = framework:getESP(player)
+								if espData and espData.armorBarOutline then
+									espData.armorBarOutline.Visible = false
+								end
+							end
+						end
+					end
+				end
+			})
+			
+			armorToggle:Colorpicker({
+				Name = "Armor Color 1",
+				Default = color3FromRGB(0, 150, 255),
+				Flag = "Armor_Color_1",
+				Callback = function(color)
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData then framework:applySettings(espData, Library.Flags) end
+					end
+				end
+			})
+			
+			armorToggle:Colorpicker({
+				Name = "Armor Color 2",
+				Default = color3FromRGB(0, 150, 255),
+				Flag = "Armor_Color_2",
+				Callback = function(color)
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData then framework:applySettings(espData, Library.Flags) end
+					end
+				end
+			})
+			
+			armorToggle:Colorpicker({
+				Name = "Armor Color 3",
+				Default = color3FromRGB(0, 150, 255),
+				Flag = "Armor_Color_3",
+				Callback = function(color)
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData then framework:applySettings(espData, Library.Flags) end
+					end
+				end
+			})
+			
+			armorToggle:Colorpicker({
+				Name = "Armor Color 4",
+				Default = color3FromRGB(0, 150, 255),
+				Flag = "Armor_Color_4",
+				Callback = function(color)
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData then framework:applySettings(espData, Library.Flags) end
+					end
+				end
+			})
+			
+			local outlineToggle = ArmorSection:Toggle({
+				Name = "Outline",
+				Default = true,
+				Flag = "Armor_Outline_Enabled",
+				Callback = function(value)
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData and espData.armorBarOutlineStroke then
+							espData.armorBarOutlineStroke.Enabled = value
+						end
+					end
+				end
+			})
+			
+			outlineToggle:Colorpicker({
+				Name = "Outline Color",
+				Default = color3FromRGB(0, 0, 0),
+				Flag = "Armor_Outline_Color",
+				Callback = function(color)
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData then framework:applySettings(espData, Library.Flags) end
+					end
+				end
+			})
+		end
+		
+		-- // flags tab
+		do
+			local nicknameToggle = FlagsSection:Toggle({
+				Name = "Nickname",
+				Default = false,
+				Flag = "Flags_Nickname",
+				Callback = function(value)
+					if value then
+						-- // create esp for all players
+						for _, player in pairs(players:GetPlayers()) do
+							if player ~= localPlayer and player.Character then
+								local espData = framework:getESP(player)
+								if not espData then
+									espData = framework:createBox(player)
+									if espData then
+										framework:setESP(player, espData)
+										framework:applySettings(espData, Library.Flags)
+									end
+								end
+							end
+						end
+					else
+						-- // clear esp if all disabled
+						if not Library.Flags["Box_Enabled"] and not Library.Flags["Health_Enabled"] and not Library.Flags["Armor_Enabled"] then
+							framework:clearAll()
+						else
+							-- // hide flags only
+							for _, player in pairs(players:GetPlayers()) do
+								local espData = framework:getESP(player)
+								if espData and espData.flagsText then
+									espData.flagsText.Visible = false
+								end
+							end
+						end
+					end
+				end
+			})
+			
+			nicknameToggle:Colorpicker({
+				Name = "Nickname Color 1",
+				Default = color3FromRGB(255, 255, 255),
+				Flag = "Flags_Nickname_Color1",
+				Callback = function(color)
+					-- // gradient applied in updatebox
+				end
+			})
+			
+			nicknameToggle:Colorpicker({
+				Name = "Nickname Color 2",
+				Default = color3FromRGB(255, 255, 255),
+				Flag = "Flags_Nickname_Color2",
+				Callback = function(color)
+					-- // gradient applied in updatebox
+				end
+			})
+			
+			local displayNameToggle = FlagsSection:Toggle({
+				Name = "DisplayName",
+				Default = false,
+				Flag = "Flags_DisplayName",
+				Callback = function(value)
+					if value then
+						-- // create esp for all players
+						for _, player in pairs(players:GetPlayers()) do
+							if player ~= localPlayer and player.Character then
+								local espData = framework:getESP(player)
+								if not espData then
+									espData = framework:createBox(player)
+									if espData then
+										framework:setESP(player, espData)
+										framework:applySettings(espData, Library.Flags)
+									end
+								end
+							end
+						end
+					else
+						-- // clear esp if all disabled
+						if not Library.Flags["Box_Enabled"] and not Library.Flags["Health_Enabled"] and not Library.Flags["Armor_Enabled"] and not Library.Flags["Flags_Nickname"] then
+							framework:clearAll()
+						end
+					end
+				end
+			})
+			
+			displayNameToggle:Colorpicker({
+				Name = "DisplayName Color 1",
+				Default = color3FromRGB(255, 255, 255),
+				Flag = "Flags_DisplayName_Color1",
+				Callback = function(color)
+					-- // gradient applied in updatebox
+				end
+			})
+			
+			displayNameToggle:Colorpicker({
+				Name = "DisplayName Color 2",
+				Default = color3FromRGB(255, 255, 255),
+				Flag = "Flags_DisplayName_Color2",
+				Callback = function(color)
+					-- // gradient applied in updatebox
+				end
+			})
+			
+			local healthPercentToggle = FlagsSection:Toggle({
+				Name = "Health Percent",
+				Default = false,
+				Flag = "Flags_HealthPercent",
+				Callback = function(value)
+					if value then
+						-- // create esp for all players
+						for _, player in pairs(players:GetPlayers()) do
+							if player ~= localPlayer and player.Character then
+								local espData = framework:getESP(player)
+								if not espData then
+									espData = framework:createBox(player)
+									if espData then
+										framework:setESP(player, espData)
+										framework:applySettings(espData, Library.Flags)
+									end
+								end
+							end
+						end
+					else
+						-- // clear esp if all disabled
+						if not Library.Flags["Box_Enabled"] and not Library.Flags["Health_Enabled"] and not Library.Flags["Armor_Enabled"] and not Library.Flags["Flags_Nickname"] and not Library.Flags["Flags_DisplayName"] and not Library.Flags["Flags_ArmorPercent"] then
+							framework:clearAll()
+						end
+					end
+				end
+			})
+			
+			healthPercentToggle:Colorpicker({
+				Name = "Health Percent Color 1",
+				Default = color3FromRGB(0, 255, 0),
+				Flag = "Flags_HealthPercent_Color1",
+				Callback = function(color)
+					-- // gradient applied in updatebox
+				end
+			})
+			
+			healthPercentToggle:Colorpicker({
+				Name = "Health Percent Color 2",
+				Default = color3FromRGB(0, 255, 0),
+				Flag = "Flags_HealthPercent_Color2",
+				Callback = function(color)
+					-- // gradient applied in updatebox
+				end
+			})
+			
+			local armorPercentToggle = FlagsSection:Toggle({
+				Name = "Armor Percent",
+				Default = false,
+				Flag = "Flags_ArmorPercent",
+				Callback = function(value)
+					if value then
+						-- // create esp for all players
+						for _, player in pairs(players:GetPlayers()) do
+							if player ~= localPlayer and player.Character then
+								local espData = framework:getESP(player)
+								if not espData then
+									espData = framework:createBox(player)
+									if espData then
+										framework:setESP(player, espData)
+										framework:applySettings(espData, Library.Flags)
+									end
+								end
+							end
+						end
+					else
+						-- // clear esp if all disabled
+						if not Library.Flags["Box_Enabled"] and not Library.Flags["Health_Enabled"] and not Library.Flags["Armor_Enabled"] and not Library.Flags["Flags_Nickname"] and not Library.Flags["Flags_DisplayName"] and not Library.Flags["Flags_HealthPercent"] then
+							framework:clearAll()
+						end
+					end
+				end
+			})
+			
+			armorPercentToggle:Colorpicker({
+				Name = "Armor Percent Color 1",
+				Default = color3FromRGB(0, 150, 255),
+				Flag = "Flags_ArmorPercent_Color1",
+				Callback = function(color)
+					-- // gradient applied in updatebox
+				end
+			})
+			
+			armorPercentToggle:Colorpicker({
+				Name = "Armor Percent Color 2",
+				Default = color3FromRGB(0, 150, 255),
+				Flag = "Flags_ArmorPercent_Color2",
+				Callback = function(color)
+					-- // gradient applied in updatebox
+				end
+			})
+		end
+	end
+	
+	-- // settings tab funcs and ui
+	do
+		local SettingsSection = SettingsTab:Section({Name = "Settings", Side = 2})
+		local ConfigsSection = SettingsTab:Section({Name = "Profiles", Side = 1})
+		local GameSection = SettingsTab:Section({Name = "Game", Side = 3})
+		
+		-- // theme colorpickers
+		for Index, Value in Library.Theme do 
+			SettingsSection:Label({Name = Index, Alignment = "Left"}):Colorpicker({ 
+				Name = Index, 
+				Default = Value, 
+				Flag = "Theme"..Index
+			})
+		end
+
+		SettingsSection:Label({Name = "Menu Keybind", Alignment = "Left"}):Keybind({Name = "Menu Keybind", Flag = "Menu Keybind", Default = Enum.KeyCode.RightControl, Mode = "Toggle", Callback = function(Value)
+			Library.MenuKeybind = Library.Flags["Menu Keybind"].Key
+		end})
+
+		SettingsSection:Toggle({Name = "Watermark", Flag = "Watermark", Default = false, Callback = function(Value)
+			Watermark:SetVisibility(Value)
+		end})
+
+		SettingsSection:Toggle({Name = "Keybind List", Flag = "Keybind List", Default = false, Callback = function(Value)
+			KeybindList:SetVisibility(Value)
+		end})
+
+		SettingsSection:Dropdown({Name = "Tweening Style", Flag = "Tweening Style", Default = "Exponential", Items = {"Linear", "Sine", "Quad", "Cubic", "Quart", "Quint", "Exponential", "Circular", "Back", "Elastic", "Bounce"}, Callback = function(Value)
+			Library.Tween.Style = Enum.EasingStyle[Value]
+		end})
+
+		SettingsSection:Dropdown({Name = "Tweening Direction", Flag = "Tweening Direction", Default = "Out", Items = {"In", "Out", "InOut"}, Callback = function(Value)
+			Library.Tween.Direction = Enum.EasingDirection[Value]
+		end})
+
+		SettingsSection:Slider({Name = "Tweening Time", Min = 0, Max = 5, Default = 0.25, Decimals = 0.01, Flag = "Tweening Time", Callback = function(Value)
+			Library.Tween.Time = Value
+		end})
+
+		SettingsSection:Button({Name = "Notification test", Callback = function()
+			Library:Notification("This is a notification This is a notification This is a notification This is a notification", 5, color3FromRGB(mathRandom(0, 255), mathRandom(0, 255), mathRandom(0, 255)))
+		end})
+
+		SettingsSection:Button({Name = "Unload library", Callback = function()
+			Library:Unload()
+		end})
+
+		local ConfigName 
+		local ConfigSelected
+
+		local ConfigsListbox = ConfigsSection:Listbox({Items = { }, Name = "Configs", Flag = "Configs List", Callback = function(Value)
+			ConfigSelected = Value
+		end})
+
+		ConfigsSection:Textbox({Name = "Config Name", Placeholder = ". .", Flag = "Config Name", Callback = function(Value)
+			ConfigName = Value
+		end})
+
+		ConfigsSection:Button({Name = "Create Config", Callback = function()
+			if not isfile(Library.Folders.Configs .. "/" .. ConfigName .. ".json") then
+				writefile(Library.Folders.Configs .. "/" .. ConfigName .. ".json", Library:GetConfig())
+
+				Library:RefreshConfigsList(ConfigsListbox)
+			else
+				Library:Notification("Config '" .. ConfigName .. ".json' already exists", 3, color3FromRGB(255, 0, 0))
+				return
+			end
+		end})
+
+		ConfigsSection:Button({Name = "Load Config", Callback = function()
+			if ConfigSelected then
+				Library:LoadConfig(readfile(Library.Folders.Configs .. "/" .. ConfigSelected))
+				for Index in Library.Theme do 
+					local color = Library.Flags["Theme"..Index].Color
+					Library.Theme[Index] = color
+					Library:ChangeTheme(Index, color)
+				end
+			end
+		end})
+
+		ConfigsSection:Button({Name = "Delete Config", Callback = function()
+			if ConfigSelected then
+				Library:DeleteConfig(ConfigSelected)
+				Library:RefreshConfigsList(ConfigsListbox)
+			end
+		end})
+
+		ConfigsSection:Button({Name = "Save Config", Callback = function()
+			if ConfigSelected then Library:SaveConfig(ConfigSelected) end
+		end})
+
+		ConfigsSection:Button({Name = "Refresh Configs", Callback = function()
+			Library:RefreshConfigsList(ConfigsListbox)
+		end})
+
+		Library:RefreshConfigsList(ConfigsListbox)
+		
+		-- // game section
+		do
+			GameSection:Button({Name = "Copy JobId", Callback = function() 
+				setclipboard(game.JobId)
+				Library:Notification("JobId copied to clipboard", 2, color3FromRGB(0, 255, 0))
+			end})
+			GameSection:Button({Name = "Copy GameID", Callback = function() 
+				setclipboard(game.GameId)
+				Library:Notification("GameID copied to clipboard", 2, color3FromRGB(0, 255, 0))
+			end})
+			GameSection:Button({Name = "Copy Join Script", Callback = function()
+				setclipboard('game:GetService("TeleportService"):TeleportToPlaceInstance(' .. game.PlaceId .. ', "' .. game.JobId .. '", game.Players.LocalPlayer)')
+				Library:Notification("Join script copied to clipboard", 2, color3FromRGB(0, 255, 0))
+			end})
+			GameSection:Button({Name = "Rejoin", Callback = function()
+				Library:Notification("Rejoining server...", 2, color3FromRGB(255, 255, 0))
+				teleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, localPlayer)
+			end})
+			GameSection:Button({Name = "Join New Server", Callback = function()
+				local serverData = httpService:JSONDecode(game:HttpGetAsync("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"))
+				local randomServer = serverData.data[mathRandom(1, #serverData.data)]
+				if randomServer.playing <= Library.Flags["max_players"] then
+					Library:Notification("Joining new server...", 2, color3FromRGB(255, 255, 0))
+					teleportService:TeleportToPlaceInstance(game.PlaceId, randomServer.id)
+				else
+					Library:Notification("No suitable server found", 3, color3FromRGB(255, 0, 0))
+				end
+			end})
+			GameSection:Slider({Name = "Max Players", Flag = "max_players", Min = 0, Max = 40, Default = 15, Decimals = 1})
+		end
+	end
+	
+	-- // combat tab funcs and ui
+	do
+		-- // targeting section
+	local TargetingSection = CombatTab:Section({Name = "Targeting", Side = 1})
+
+	-- // targeting state
+	local targetingEnabled = false
+
+	TargetingSection:Label({Name = "Ragebot selection", Alignment = "Center"}):Keybind({
+		Name = "Target Keybind",
+		Flag = "Target_Keybind",
+		Default = Enum.KeyCode.T,
+		Mode = "Toggle",
+		Callback = function(value)
+			targetingEnabled = value
+
+			if targetingEnabled then
+				-- // enable targeting - select closest player
+				function targeting:getClosestPlayerToCursor(maxDistance)
+					local closestPlayer = nil
+					local closestDistance = maxDistance or math.huge
+					local mousePos = vector2New(mouse.X, mouse.Y)
+
+					for _, player in pairs(players:GetPlayers()) do
+						if player ~= localPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+							local hrp = player.Character.HumanoidRootPart
+							local screenPos, onScreen = currentCamera:WorldToViewportPoint(hrp.Position)
+
+							if onScreen then
+								local distance = (vector2New(screenPos.X, screenPos.Y) - mousePos).Magnitude
+								if distance < closestDistance then
+									closestDistance = distance
+									closestPlayer = player
+								end
+							end
+						end
+					end
+
+					return closestPlayer
+				end
+
+				targeting.target = targeting:getClosestPlayerToCursor(math.huge)
+				if targeting.target then
+					Library:Notification("Selected target: " .. targeting.target.Name, 2, color3FromRGB(0, 255, 0))
+				else
+					Library:Notification("No target found", 2, color3FromRGB(255, 0, 0))
+				end
+			else
+				-- // disable targeting - clear target
+				targeting.target = nil
+				Library:Notification("Targeting disabled", 2, color3FromRGB(255, 255, 0))
+			end
+		end
+	})
+
+	-- // target aimbot toggle and settings
+	local AimSettingsSection = CombatTab:Section({Name = "AimSettings", Side = 2})
+	
+	AimSettingsSection:Toggle({
+		Name = "TargetAimbot",
+		Default = false,
+		Flag = "TargetAimbot_Enabled",
+		Callback = function(value)
+			-- // toggle aimbot logic here
+		end
+	})
+
+	-- // prediction settings
+	AimSettingsSection:Textbox({
+		Name = "Prediction X",
+		Default = "0.1",
+		Flag = "TargetAimbot_PredictionX",
+		Callback = function(value)
+			-- // update prediction x
+		end
+	})
+
+	AimSettingsSection:Textbox({
+		Name = "Prediction Y",
+		Default = "0.1",
+		Flag = "TargetAimbot_PredictionY",
+		Callback = function(value)
+			-- // update prediction y
+		end
+	})
+
+	-- // show aimbot line toggle
+	local showAimbotToggle = AimSettingsSection:Toggle({
+		Name = "ShowAimbot",
+		Default = false,
+		Flag = "ShowAimbot_Enabled",
+		Callback = function(value)
+			if not value then
+				aimbotLine.Visible = false
+				aimbotLineOutline.Visible = false
+			end
+		end
+	})
+
+	-- // colorpicker for aimbot line
+	showAimbotToggle:Colorpicker({
+		Name = "Line Color",
+		Default = color3FromRGB(255, 255, 255),
+		Flag = "ShowAimbot_Color",
+		Callback = function(color)
+			aimbotLine.Color = color
+		end
+	})
+
+	-- // aimbot logic
+	do
+		local aimbotSettings = {
+			predictionX = 0.1,
+			predictionY = 0.1,
+			hitpart = "HumanoidRootPart"
+		}
+
+		-- // update prediction values from flags
+		local function updatePredictionValues()
+			aimbotSettings.predictionX = tonumber(Library.Flags["TargetAimbot_PredictionX"]) or 0.1
+			aimbotSettings.predictionY = tonumber(Library.Flags["TargetAimbot_PredictionY"]) or 0.1
+		end
+
+		-- // get predicted position
+		local function getPredictedPosition()
+			if not targeting.target or not targeting.target.Character then return nil end
+			
+			local hrp = targeting.target.Character:FindFirstChild(aimbotSettings.hitpart)
+			if not hrp then return nil end
+
+			updatePredictionValues()
+
+			local targetVelocity = hrp.Velocity
+			local predictedPos = hrp.Position + vector3New(
+				targetVelocity.X * aimbotSettings.predictionX,
+				targetVelocity.Y * aimbotSettings.predictionY,
+				targetVelocity.Z * aimbotSettings.predictionX
+			)
+
+			return predictedPos
+		end
+
+		-- // silent aimbot hook
+		local __aimbot
+		__aimbot = hookmetamethod(game, "__index", function(t, k)
+			if t:IsA("Mouse") and (k == "Hit" or k == "Target") then
+				if not Library.Flags["TargetAimbot_Enabled"] or not targeting.target then
+					return __aimbot(t, k)
+				end
+
+				local targetChar = targeting.target.Character
+				if not targetChar then return __aimbot(t, k) end
+
+				local selPart = targetChar:FindFirstChild(aimbotSettings.hitpart)
+				if selPart then
+					local predictedPos = getPredictedPosition() or selPart.Position
+					local hit = cframe(predictedPos)
+					return k == "Hit" and hit or selPart
+				end
+			end
+			return __aimbot(t, k)
+		end)
+
+		-- // draw aimbot line
+		runService.RenderStepped:Connect(function()
+			if Library.Flags["ShowAimbot_Enabled"] and Library.Flags["TargetAimbot_Enabled"] and targeting.target then
+				local targetChar = targeting.target.Character
+				if targetChar then
+					local selPart = targetChar:FindFirstChild(aimbotSettings.hitpart)
+					if selPart then
+						local predictedPos = getPredictedPosition() or selPart.Position
+						
+						-- // get weapon handle position
+						local weaponHandle = nil
+						if localPlayer.Character then
+							for _, child in pairs(localPlayer.Character:GetChildren()) do
+								if child:IsA("Tool") and child:FindFirstChild("Handle") then
+									weaponHandle = child.Handle
+									break
+								end
+							end
+						end
+
+						if weaponHandle then
+							local handlePos = weaponHandle.Position
+							local handleScreenPos, handleOnScreen = currentCamera:WorldToViewportPoint(handlePos)
+							local targetScreenPos, targetOnScreen = currentCamera:WorldToViewportPoint(predictedPos)
+
+							if handleOnScreen and targetOnScreen then
+								local fromPos = vector2New(handleScreenPos.X, handleScreenPos.Y)
+								local toPos = vector2New(targetScreenPos.X, targetScreenPos.Y)
+								
+								-- // update color from colorpicker
+								if Library.Flags["ShowAimbot_Color"] then
+									aimbotLine.Color = Library.Flags["ShowAimbot_Color"].Color
+								end
+								
+								-- // draw outline first (thicker, black)
+								aimbotLineOutline.From = fromPos
+								aimbotLineOutline.To = toPos
+								aimbotLineOutline.Visible = true
+								
+								-- // draw main line on top (thinner, colored)
+								aimbotLine.From = fromPos
+								aimbotLine.To = toPos
+								aimbotLine.Visible = true
+							else
+								aimbotLine.Visible = false
+								aimbotLineOutline.Visible = false
+							end
+						else
+							aimbotLine.Visible = false
+							aimbotLineOutline.Visible = false
+						end
+					else
+						aimbotLine.Visible = false
+						aimbotLineOutline.Visible = false
+					end
+				else
+					aimbotLine.Visible = false
+					aimbotLineOutline.Visible = false
+				end
+			else
+				aimbotLine.Visible = false
+				aimbotLineOutline.Visible = false
+			end
+		end)
+	end
+		
+		-- // periodic cleanup
+		taskSpawn(function()
+			while taskWait(5) do
+				-- // check all players
+				for _, player in pairs(players:GetPlayers()) do
+					if player ~= localPlayer then
+						local espData = framework:getESP(player)
+						if espData then
+							-- // validate character
+							if espData.character and not espData.character.Parent then
+								framework:removeBox(player)
+							end
+						end
+					end
+				end
+			end
+		end)
+		
+		-- // new players handler
+		players.PlayerAdded:Connect(function(player)
+			player.CharacterAdded:Connect(function(character)
+				taskWait(0.5) -- // wait for character load
+				if (Library.Flags["Box_Enabled"] or Library.Flags["Health_Enabled"] or Library.Flags["Armor_Enabled"] or Library.Flags["Flags_Nickname"] or Library.Flags["Flags_DisplayName"]) and player ~= localPlayer then
+					local espData = framework:createBox(player)
+					if espData then
+						framework:setESP(player, espData)
+						framework:applySettings(espData, Library.Flags)
+					end
+				end
+			end)
+		end)
+		
+		-- // player removing handler
+		players.PlayerRemoving:Connect(function(player)
+			framework:removeBox(player)
+		end)
+		
+		-- // character respawn handler
+		players.PlayerAdded:Connect(function(player)
+			if player ~= localPlayer then
+				player.CharacterAdded:Connect(function(character)
+					taskWait(0.5)
+					if Library.Flags["Box_Enabled"] or Library.Flags["Health_Enabled"] or Library.Flags["Armor_Enabled"] or Library.Flags["Flags_Nickname"] or Library.Flags["Flags_DisplayName"] then
+						framework:removeBox(player)
+						local espData = framework:createBox(player)
+						if espData then
+							framework:setESP(player, espData)
+							framework:applySettings(espData, Library.Flags)
+						end
+					end
+				end)
+			end
+		end)
+		
+		-- // existing players handler
+		for _, player in pairs(players:GetPlayers()) do
+			if player ~= localPlayer and player.Character then
+				if Library.Flags["Box_Enabled"] or Library.Flags["Health_Enabled"] or Library.Flags["Armor_Enabled"] or Library.Flags["Flags_Nickname"] or Library.Flags["Flags_DisplayName"] then
+					local espData = framework:createBox(player)
+					if espData then
+						framework:setESP(player, espData)
+						framework:applySettings(espData, Library.Flags)
+					end
+				end
+				
+				player.CharacterAdded:Connect(function(character)
+					taskWait(0.5)
+					if Library.Flags["Box_Enabled"] or Library.Flags["Health_Enabled"] or Library.Flags["Armor_Enabled"] or Library.Flags["Flags_Nickname"] or Library.Flags["Flags_DisplayName"] then
+						framework:removeBox(player)
+						local espData = framework:createBox(player)
+						if espData then
+							framework:setESP(player, espData)
+							framework:applySettings(espData, Library.Flags)
+						end
+					end
+				end)
+			end
+		end
+	end
+end
