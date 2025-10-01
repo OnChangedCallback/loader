@@ -150,6 +150,41 @@ do
 		})
 		healthBarGradient.Parent = healthBarFill
 		
+		-- Outline для armorbar
+		local armorBarOutline = instanceNew("Frame")
+		armorBarOutline.Name = "ArmorBarOutline_" .. player.Name
+		armorBarOutline.BackgroundColor3 = color3FromRGB(0, 0, 0)
+		armorBarOutline.BorderSizePixel = 0
+		armorBarOutline.Visible = false
+		armorBarOutline.Parent = gui
+		
+		local armorBarOutlineStroke = instanceNew("UIStroke")
+		armorBarOutlineStroke.Name = "OutlineStroke"
+		armorBarOutlineStroke.Thickness = 0.9
+		armorBarOutlineStroke.Color = color3FromRGB(0, 0, 0)
+		armorBarOutlineStroke.Parent = armorBarOutline
+		
+		-- Fill для armorbar
+		local armorBarFill = instanceNew("Frame")
+		armorBarFill.Name = "ArmorBarFill"
+		armorBarFill.BackgroundTransparency = 0
+		armorBarFill.BorderSizePixel = 0
+		armorBarFill.AnchorPoint = vector2New(0, 1)
+		armorBarFill.Position = udim2New(0, 0, 1, 0)
+		armorBarFill.Size = udim2New(1, 0, 1, 0)
+		armorBarFill.Parent = armorBarOutline
+		
+		local armorBarGradient = instanceNew("UIGradient")
+		armorBarGradient.Name = "ArmorBarGradient"
+		armorBarGradient.Rotation = 90
+		armorBarGradient.Color = ColorSequence.new({
+			colorSequenceKeypoint(0, color3FromRGB(0, 150, 255)),
+			colorSequenceKeypoint(0.33, color3FromRGB(0, 150, 255)),
+			colorSequenceKeypoint(0.66, color3FromRGB(0, 150, 255)),
+			colorSequenceKeypoint(1, color3FromRGB(0, 150, 255))
+		})
+		armorBarGradient.Parent = armorBarFill
+		
 		return {
 			player = player,
 			box = box,
@@ -165,7 +200,12 @@ do
 			healthBarOutlineStroke = healthBarOutlineStroke,
 			healthBarFill = healthBarFill,
 			healthBarGradient = healthBarGradient,
-			lastHealth = 1
+			armorBarOutline = armorBarOutline,
+			armorBarOutlineStroke = armorBarOutlineStroke,
+			armorBarFill = armorBarFill,
+			armorBarGradient = armorBarGradient,
+			lastHealth = 1,
+			lastArmor = 1
 		}
 	end
 	
@@ -178,6 +218,9 @@ do
 			if espData.healthBarOutline then
 				espData.healthBarOutline:Destroy()
 			end
+			if espData.armorBarOutline then
+				espData.armorBarOutline:Destroy()
+			end
 		end
 		espCache[player] = nil
 	end
@@ -186,6 +229,18 @@ do
 		if not espData or not espData.character or not espData.box then return end
 		
 		local character = espData.character
+		-- Проверяем что персонаж все еще существует
+		if not character.Parent then
+			espData.box.Visible = false
+			if espData.healthBarOutline then
+				espData.healthBarOutline.Visible = false
+			end
+			if espData.armorBarOutline then
+				espData.armorBarOutline.Visible = false
+			end
+			return
+		end
+		
 		local hrp = character:FindFirstChild("HumanoidRootPart")
 		local humanoid = character:FindFirstChildOfClass("Humanoid")
 		
@@ -193,6 +248,9 @@ do
 			espData.box.Visible = false
 			if espData.healthBarOutline then
 				espData.healthBarOutline.Visible = false
+			end
+			if espData.armorBarOutline then
+				espData.armorBarOutline.Visible = false
 			end
 			return
 		end
@@ -204,6 +262,9 @@ do
 			espData.box.Visible = false
 			if espData.healthBarOutline then
 				espData.healthBarOutline.Visible = false
+			end
+			if espData.armorBarOutline then
+				espData.armorBarOutline.Visible = false
 			end
 			return
 		end
@@ -298,6 +359,65 @@ do
 				espData.healthBarOutline.Visible = false
 			end
 		end
+		
+		-- Обновляем armorbar если включен (используем сохраненные позиции)
+		local armorEnabled = flags and flags["Armor_Enabled"] or false
+		if armorEnabled and espData.armorBarFill and espData.armorBarOutline and espData.lastBoxX then
+			-- Получаем броню из workspace.Players.[PlayerName].BodyEffects.Armor
+			local armorValue = 0
+			local workspacePlayers = workspace:FindFirstChild("Players")
+			if workspacePlayers then
+				local playerFolder = workspacePlayers:FindFirstChild(espData.player.Name)
+				if playerFolder then
+					local bodyEffects = playerFolder:FindFirstChild("BodyEffects")
+					if bodyEffects then
+						local armorIntValue = bodyEffects:FindFirstChild("Armor")
+						if armorIntValue and armorIntValue:IsA("IntValue") then
+							armorValue = armorIntValue.Value
+						end
+					end
+				end
+			end
+			
+			local currentArmor = math.min(armorValue / 130, 1)
+			local lastArmor = espData.lastArmor or currentArmor
+			local lerpedArmor = lastArmor + (currentArmor - lastArmor) * 0.05
+			espData.lastArmor = lerpedArmor
+			
+			-- Динамический offset в зависимости от расстояния
+			local distance = (hrp.Position - currentCamera.CFrame.Position).Magnitude
+			local baseOffset = 4.1
+			local mathClamp = math.clamp or function(val, min, max) return math.max(min, math.min(max, val)) end
+			local scaleFactor = mathClamp(1 + (distance / 100) * 0.2, 1, 1.2)
+			local dynamicOffset = baseOffset * scaleFactor
+			
+			-- Толщина бара
+			local barWidth = 0.6
+			
+			-- Позиция armorbar справа от бокса (используем сохраненные значения)
+			local barX = espData.lastBoxX + espData.lastBoxWidth + dynamicOffset
+			local barY = espData.lastBoxY - 1
+			local barHeight = espData.lastBoxHeight + 2
+			
+			espData.armorBarOutline.Position = udim2New(0, barX, 0, barY)
+			espData.armorBarOutline.Size = udim2New(0, barWidth + 2, 0, barHeight)
+			espData.armorBarOutline.Visible = true
+			
+			-- Обновляем видимость outline stroke
+			if espData.armorBarOutlineStroke then
+				local outlineEnabled = flags and flags["Armor_Outline_Enabled"]
+				if outlineEnabled ~= nil then
+					espData.armorBarOutlineStroke.Enabled = outlineEnabled
+				end
+			end
+			
+			-- Заполнение armorbar снизу вверх
+			espData.armorBarFill.Size = udim2New(1, 0, lerpedArmor, 0)
+		else
+			if espData.armorBarOutline then
+				espData.armorBarOutline.Visible = false
+			end
+		end
 	end
 	
 	function framework:getESP(player)
@@ -315,6 +435,9 @@ do
 			end
 			if espData.healthBarOutline then
 				espData.healthBarOutline:Destroy()
+			end
+			if espData.armorBarOutline then
+				espData.armorBarOutline:Destroy()
 			end
 		end
 		espCache = {}
@@ -386,6 +509,25 @@ do
 		-- Healthbar outline
 		if espData.healthBarOutlineStroke and flags["Health_Outline_Color"] then
 			espData.healthBarOutlineStroke.Color = flags["Health_Outline_Color"].Color
+		end
+		
+		-- Armorbar
+		if espData.armorBarGradient then
+			local ac1 = flags["Armor_Color_1"] and flags["Armor_Color_1"].Color or color3FromRGB(0, 150, 255)
+			local ac2 = flags["Armor_Color_2"] and flags["Armor_Color_2"].Color or color3FromRGB(0, 150, 255)
+			local ac3 = flags["Armor_Color_3"] and flags["Armor_Color_3"].Color or color3FromRGB(0, 150, 255)
+			local ac4 = flags["Armor_Color_4"] and flags["Armor_Color_4"].Color or color3FromRGB(0, 150, 255)
+			espData.armorBarGradient.Color = ColorSequence.new({
+				colorSequenceKeypoint(0, ac1),
+				colorSequenceKeypoint(0.33, ac2),
+				colorSequenceKeypoint(0.66, ac3),
+				colorSequenceKeypoint(1, ac4)
+			})
+		end
+		
+		-- Armorbar outline
+		if espData.armorBarOutlineStroke and flags["Armor_Outline_Color"] then
+			espData.armorBarOutlineStroke.Color = flags["Armor_Outline_Color"].Color
 		end
 	end
 end
@@ -751,7 +893,115 @@ do
 		
 		-- Armor вкладка
 		do
-			-- UI элементы будут добавлены позже
+			local armorToggle = ArmorSection:Toggle({
+				Name = "Armor Bar",
+				Default = false,
+				Flag = "Armor_Enabled",
+				Callback = function(value)
+					if value then
+						-- Создаем ESP для всех игроков если его еще нет
+						for _, player in pairs(players:GetPlayers()) do
+							if player ~= localPlayer and player.Character then
+								local espData = framework:getESP(player)
+								if not espData then
+									espData = framework:createBox(player)
+									if espData then
+										framework:setESP(player, espData)
+										framework:applySettings(espData, Library.Flags)
+									end
+								end
+							end
+						end
+					else
+						-- Если Box ESP и Health ESP тоже выключены, удаляем все ESP
+						if not Library.Flags["Box_Enabled"] and not Library.Flags["Health_Enabled"] then
+							framework:clearAll()
+						else
+							-- Если другие ESP включены, просто скрываем armorbar
+							for _, player in pairs(players:GetPlayers()) do
+								local espData = framework:getESP(player)
+								if espData and espData.armorBarOutline then
+									espData.armorBarOutline.Visible = false
+								end
+							end
+						end
+					end
+				end
+			})
+			
+			armorToggle:Colorpicker({
+				Name = "Armor Color 1",
+				Default = color3FromRGB(0, 150, 255),
+				Flag = "Armor_Color_1",
+				Callback = function(color)
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData then framework:applySettings(espData, Library.Flags) end
+					end
+				end
+			})
+			
+			armorToggle:Colorpicker({
+				Name = "Armor Color 2",
+				Default = color3FromRGB(0, 150, 255),
+				Flag = "Armor_Color_2",
+				Callback = function(color)
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData then framework:applySettings(espData, Library.Flags) end
+					end
+				end
+			})
+			
+			armorToggle:Colorpicker({
+				Name = "Armor Color 3",
+				Default = color3FromRGB(0, 150, 255),
+				Flag = "Armor_Color_3",
+				Callback = function(color)
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData then framework:applySettings(espData, Library.Flags) end
+					end
+				end
+			})
+			
+			armorToggle:Colorpicker({
+				Name = "Armor Color 4",
+				Default = color3FromRGB(0, 150, 255),
+				Flag = "Armor_Color_4",
+				Callback = function(color)
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData then framework:applySettings(espData, Library.Flags) end
+					end
+				end
+			})
+			
+			local outlineToggle = ArmorSection:Toggle({
+				Name = "Outline",
+				Default = true,
+				Flag = "Armor_Outline_Enabled",
+				Callback = function(value)
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData and espData.armorBarOutlineStroke then
+							espData.armorBarOutlineStroke.Enabled = value
+						end
+					end
+				end
+			})
+			
+			outlineToggle:Colorpicker({
+				Name = "Outline Color",
+				Default = color3FromRGB(0, 0, 0),
+				Flag = "Armor_Outline_Color",
+				Callback = function(color)
+					for _, player in pairs(players:GetPlayers()) do
+						local espData = framework:getESP(player)
+						if espData then framework:applySettings(espData, Library.Flags) end
+					end
+				end
+			})
 		end
 		
 		-- Flags вкладка
@@ -893,8 +1143,26 @@ do
 	do
 		-- RenderStepped для обновления позиций боксов
 		runService.RenderStepped:Connect(function()
-			if Library.Flags["Box_Enabled"] or Library.Flags["Health_Enabled"] then
+			if Library.Flags["Box_Enabled"] or Library.Flags["Health_Enabled"] or Library.Flags["Armor_Enabled"] then
 				framework:updateAllBoxes(Library.Flags)
+			end
+		end)
+		
+		-- Периодическая очистка "мертвых" ESP (каждые 5 секунд)
+		task.spawn(function()
+			while taskWait(5) do
+				-- Проверяем всех игроков в игре
+				for _, player in pairs(players:GetPlayers()) do
+					if player ~= localPlayer then
+						local espData = framework:getESP(player)
+						if espData then
+							-- Проверяем что персонаж существует
+							if espData.character and not espData.character.Parent then
+								framework:removeBox(player)
+							end
+						end
+					end
+				end
 			end
 		end)
 		
@@ -902,7 +1170,7 @@ do
 		players.PlayerAdded:Connect(function(player)
 			player.CharacterAdded:Connect(function(character)
 				taskWait(0.5) -- Ждем загрузки персонажа
-				if (Library.Flags["Box_Enabled"] or Library.Flags["Health_Enabled"]) and player ~= localPlayer then
+				if (Library.Flags["Box_Enabled"] or Library.Flags["Health_Enabled"] or Library.Flags["Armor_Enabled"]) and player ~= localPlayer then
 					local espData = framework:createBox(player)
 					if espData then
 						framework:setESP(player, espData)
@@ -922,7 +1190,7 @@ do
 			if player ~= localPlayer then
 				player.CharacterAdded:Connect(function(character)
 					taskWait(0.5)
-					if Library.Flags["Box_Enabled"] or Library.Flags["Health_Enabled"] then
+					if Library.Flags["Box_Enabled"] or Library.Flags["Health_Enabled"] or Library.Flags["Armor_Enabled"] then
 						framework:removeBox(player)
 						local espData = framework:createBox(player)
 						if espData then
@@ -937,7 +1205,7 @@ do
 		-- Обработка существующих игроков
 		for _, player in pairs(players:GetPlayers()) do
 			if player ~= localPlayer and player.Character then
-				if Library.Flags["Box_Enabled"] or Library.Flags["Health_Enabled"] then
+				if Library.Flags["Box_Enabled"] or Library.Flags["Health_Enabled"] or Library.Flags["Armor_Enabled"] then
 					local espData = framework:createBox(player)
 					if espData then
 						framework:setESP(player, espData)
@@ -947,7 +1215,7 @@ do
 				
 				player.CharacterAdded:Connect(function(character)
 					taskWait(0.5)
-					if Library.Flags["Box_Enabled"] or Library.Flags["Health_Enabled"] then
+					if Library.Flags["Box_Enabled"] or Library.Flags["Health_Enabled"] or Library.Flags["Armor_Enabled"] then
 						framework:removeBox(player)
 						local espData = framework:createBox(player)
 						if espData then
