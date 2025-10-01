@@ -6,6 +6,7 @@ local httpService = getService(game, "HttpService")
 local players = getService(game, "Players")
 local runService = getService(game, "RunService")
 local workspace = getService(game, "Workspace")
+local replicatedStorage = getService(game, "ReplicatedStorage")
 local localPlayer = players.LocalPlayer
 local osDate, mathRandom = os.date, math.random
 local udim2New, color3FromRGB = UDim2.new, Color3.fromRGB
@@ -1669,6 +1670,67 @@ do
 				targeting.target = nil
 				Library:Notification("Targeting disabled", 2, color3FromRGB(255, 255, 0))
 			end
+		end
+	})
+
+	-- // gun section
+	local GunSection = CombatTab:Section({Name = "Gun", Side = 1})
+
+	-- // auto reload toggle
+	local autoReloadConnection = nil
+	local lastReloadCheck = 0
+	GunSection:Toggle({
+		Name = "Auto Reload",
+		Default = false,
+		Flag = "AutoReload_Enabled",
+		Callback = function(value)
+			if value then
+				-- // enable auto reload
+				lastReloadCheck = tick()
+				autoReloadConnection = runService.Heartbeat:Connect(function()
+					local currentTime = tick()
+					if currentTime - lastReloadCheck >= 0.1 then -- // 10 checks per second
+						lastReloadCheck = currentTime
+						local tool = localPlayer.Character and localPlayer.Character:FindFirstChildWhichIsA("Tool")
+						if tool and tool:FindFirstChild("Ammo") and tool.Ammo.Value == 0 then
+							replicatedStorage.MainEvent:FireServer("Reload", tool)
+						end
+					end
+				end)
+			else
+				-- // disable auto reload
+				if autoReloadConnection then
+					autoReloadConnection:Disconnect()
+					autoReloadConnection = nil
+				end
+			end
+		end
+	})
+
+	-- // no recoil toggle
+	local noRecoilEnabled = false
+	local oldNewIndex = nil
+	
+	if not oldNewIndex then
+		oldNewIndex = hookmetamethod(game, "__newindex", function(self, idx, val)
+			if noRecoilEnabled then
+				local callingScript = getcallingscript()
+				if callingScript and tostring(callingScript) == "Framework" then
+					if tostring(self):lower():find("camera") and tostring(idx) == "CFrame" then
+						return
+					end
+				end
+			end
+			return oldNewIndex(self, idx, val)
+		end)
+	end
+	
+	GunSection:Toggle({
+		Name = "No Recoil",
+		Default = false,
+		Flag = "NoRecoil_Enabled",
+		Callback = function(value)
+			noRecoilEnabled = value
 		end
 	})
 
