@@ -27,6 +27,35 @@ local taskWait, taskSpawn = task.wait, task.spawn
 -- // targeting system
 local targeting = {target = nil}
 
+-- // spread config
+local spreadConfig = {
+	enabled = false,
+	amount = 0
+}
+
+-- // no spread hook
+local oldMathRandom = nil
+if not oldMathRandom then
+	oldMathRandom = hookfunction(math.random, function(...)
+		local args = {...}
+		if checkcaller() then
+			return oldMathRandom(...)
+		end
+		if (#args == 0) or 
+		   (args[1] == -0.05 and args[2] == 0.05) or 
+		   (args[1] == -0.1) or
+		   (args[1] == -0.05) then
+			if spreadConfig.enabled then
+				local spread = spreadConfig.amount
+				return oldMathRandom(...) * (spread / 100)
+			else
+				return oldMathRandom(...)
+			end
+		end
+		return oldMathRandom(...)
+	end)
+end
+
 -- // drawing api
 local drawingNew = Drawing.new
 local aimbotLineOutline = drawingNew("Line")
@@ -1733,6 +1762,253 @@ do
 			noRecoilEnabled = value
 		end
 	})
+
+	-- // no spread toggle
+	GunSection:Toggle({
+		Name = "No Spread",
+		Default = false,
+		Flag = "NoSpread_Enabled",
+		Callback = function(value)
+			spreadConfig.enabled = value
+		end
+	})
+
+	-- // spread amount slider
+	GunSection:Slider({
+		Name = "Spread Amount",
+		Min = 0,
+		Max = 100,
+		Decimal = 1,
+		Default = 0,
+		Suffix = "%",
+		Flag = "Spread_Amount",
+		Callback = function(value)
+			spreadConfig.amount = value
+		end
+	})
+
+	-- // rapid fire toggle
+	local rapidFireEnabled = false
+	local rapidFireOriginal = {}
+	
+	GunSection:Toggle({
+		Name = "Rapid Fire",
+		Default = false,
+		Flag = "RapidFire_Enabled",
+		Callback = function(value)
+			rapidFireEnabled = value
+		end
+	})
+
+	-- // wallbang toggle
+	local wallbangOriginalIgnored = nil
+	GunSection:Toggle({
+		Name = "Wallbang",
+		Default = false,
+		Flag = "Wallbang_Enabled",
+		Callback = function(value)
+			local handler = replicatedStorage:FindFirstChild("MainModule")
+			if handler then
+				local success, module = pcall(function()
+					return require(handler)
+				end)
+				
+				if success and module then
+					if value then
+						-- // enable wallbang - save original and set new ignored
+						if not wallbangOriginalIgnored then
+							wallbangOriginalIgnored = module.Ignored
+						end
+						module.Ignored = {
+							workspace:WaitForChild("Vehicles"),
+							workspace:WaitForChild("MAP"),
+							workspace:WaitForChild("Ignored")
+						}
+					else
+						-- // disable wallbang - restore original
+						if wallbangOriginalIgnored then
+							module.Ignored = wallbangOriginalIgnored
+						end
+					end
+				end
+			end
+		end
+	})
+
+	-- // multi guns toggle
+	local multiGunsState = {
+		enabled = false,
+		equipped_tools = {},
+		tool_added_conn = nil,
+		tool_removed_conn = nil,
+		character = nil,
+		char_added_conn = nil,
+		heartbeat_conn = nil
+	}
+	
+	local allowed_tools = {
+		["[AUG]"] = true,
+		["[Rifle]"] = true,
+		["[LMG]"] = true,
+		["[P90]"] = true,
+		["[Flintlock]"] = true,
+		["[Revolver]"] = true,
+		["[Double-Barrel SG]"] = true,
+		["[AK47]"] = true,
+		["[TacticalShotgun]"] = true,
+		["[SMG]"] = true,
+		["[AR]"] = true,
+		["[Silencer]"] = true,
+		["[Shotgun]"] = true,
+	}
+	
+	local function equipAllWeapons()
+		multiGunsState.equipped_tools = {}
+		
+		local backpack = localPlayer:FindFirstChild("Backpack")
+		if backpack then
+			for _, tool in ipairs(backpack:GetChildren()) do
+				if tool:IsA("Tool") and allowed_tools[tool.Name] then
+					tool.Parent = multiGunsState.character
+				end
+			end
+		end
+		
+		for _, tool in ipairs(multiGunsState.character:GetChildren()) do
+			if tool:IsA("Tool") and allowed_tools[tool.Name] and tool:FindFirstChild("Handle") then
+				table.insert(multiGunsState.equipped_tools, tool)
+			end
+		end
+	end
+	
+	local function onCharacterAdded(new_char)
+		multiGunsState.character = new_char
+		
+		if multiGunsState.tool_added_conn then 
+			multiGunsState.tool_added_conn:Disconnect() 
+		end
+		if multiGunsState.tool_removed_conn then 
+			multiGunsState.tool_removed_conn:Disconnect() 
+		end
+		
+		multiGunsState.tool_added_conn = new_char.ChildAdded:Connect(function(child)
+			if child:IsA("Tool") and allowed_tools[child.Name] and child:FindFirstChild("Handle") then
+				table.insert(multiGunsState.equipped_tools, child)
+			end
+		end)
+		
+		multiGunsState.tool_removed_conn = new_char.ChildRemoved:Connect(function(child)
+			if child:IsA("Tool") then
+				for i, tool in ipairs(multiGunsState.equipped_tools) do
+					if tool == child then
+						table.remove(multiGunsState.equipped_tools, i)
+						break
+					end
+				end
+			end
+		end)
+		
+		if multiGunsState.enabled then
+			equipAllWeapons()
+		end
+	end
+	
+	GunSection:Toggle({
+		Name = "Multi Guns",
+		Default = false,
+		Flag = "MultiGuns_Enabled",
+		Callback = function(value)
+			if value then
+				-- // enable multi guns
+				multiGunsState.enabled = true
+				multiGunsState.character = localPlayer.Character
+				
+				if multiGunsState.character then
+					onCharacterAdded(multiGunsState.character)
+				end
+				
+				-- // character added connection
+				if not multiGunsState.char_added_conn then
+					multiGunsState.char_added_conn = localPlayer.CharacterAdded:Connect(function(new_char)
+						onCharacterAdded(new_char)
+					end)
+				end
+				
+				-- // heartbeat connection
+				multiGunsState.heartbeat_conn = runService.Heartbeat:Connect(function()
+					if not multiGunsState.enabled then return end
+					if not multiGunsState.character then return end
+					
+					equipAllWeapons()
+				end)
+			else
+				-- // disable multi guns
+				multiGunsState.enabled = false
+				
+				if multiGunsState.heartbeat_conn then
+					multiGunsState.heartbeat_conn:Disconnect()
+					multiGunsState.heartbeat_conn = nil
+				end
+				
+				if multiGunsState.tool_added_conn then
+					multiGunsState.tool_added_conn:Disconnect()
+					multiGunsState.tool_added_conn = nil
+				end
+				
+				if multiGunsState.tool_removed_conn then
+					multiGunsState.tool_removed_conn:Disconnect()
+					multiGunsState.tool_removed_conn = nil
+				end
+				
+				if multiGunsState.char_added_conn then
+					multiGunsState.char_added_conn:Disconnect()
+					multiGunsState.char_added_conn = nil
+				end
+				
+				multiGunsState.equipped_tools = {}
+			end
+		end
+	})
+
+	-- // rapid fire logic
+	runService.RenderStepped:Connect(function()
+		if rapidFireEnabled then
+			local tool = localPlayer.Character and localPlayer.Character:FindFirstChildOfClass("Tool")
+			if tool and tool:FindFirstChild("GunScript") then
+				for _, connection in ipairs(getconnections(tool.Activated)) do
+					local func = connection.Function
+					if func then
+						local funcInfo = debug.getinfo(func)
+						for i = 1, funcInfo.nups do
+							local c, n = debug.getupvalue(func, i)
+							if type(c) == "number" then
+								if not rapidFireOriginal[i] then
+									rapidFireOriginal[i] = c
+								end
+								debug.setupvalue(func, i, 0.00000000000000000001)
+							end
+						end
+					end
+				end
+			end
+		else
+			-- // restore original values when disabled
+			local tool = localPlayer.Character and localPlayer.Character:FindFirstChildOfClass("Tool")
+			if tool and tool:FindFirstChild("GunScript") then
+				for _, connection in ipairs(getconnections(tool.Activated)) do
+					local func = connection.Function
+					if func then
+						local funcInfo = debug.getinfo(func)
+						for i = 1, funcInfo.nups do
+							if rapidFireOriginal[i] then
+								debug.setupvalue(func, i, rapidFireOriginal[i])
+							end
+						end
+					end
+				end
+			end
+		end
+	end)
 
 	-- // target aimbot toggle and settings
 	local AimSettingsSection = CombatTab:Section({Name = "AimSettings", Side = 2})
