@@ -272,7 +272,7 @@ do
 			local dynamicOffset = baseOffset * scaleFactor
 			
 			-- Толщина бара чуть тоньше
-			local barWidth = 1.0
+			local barWidth = 0.6
 			
 			-- Позиция healthbar слева от бокса (используем сохраненные значения)
 			local barX = espData.lastBoxX - dynamicOffset - barWidth - 1
