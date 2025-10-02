@@ -2449,6 +2449,8 @@ do
 	local safetySyncEnabled = false
 	local safetySyncConnection = nil
 	local positionLogConnection = nil
+	local currentPattern = "Void Random"
+	local voidSpamState = true -- true = void, false = sky
 	
 	DesyncSection:Toggle({
 		Name = "SafetySync",
@@ -2463,13 +2465,44 @@ do
 					while safetySyncEnabled do
 						taskWait(0.1)
 						if localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart") then
-							-- // generate truly random coordinates with huge range
-							local randomX = (mathRandom() - 0.5) * 2 * 999999999
-							local randomZ = (mathRandom() - 0.5) * 2 * 999999999
-							local voidY = -mathHuge
+							local x, y, z
 							
-							-- // move desync to new random position
-							framework.desync:moveDesyncTo(randomX, voidY, randomZ)
+							-- // generate coordinates based on selected pattern
+							if currentPattern == "Void Random" then
+								x = (mathRandom() - 0.5) * 2 * 999999999
+								y = -mathHuge
+								z = (mathRandom() - 0.5) * 2 * 999999999
+							elseif currentPattern == "Sky Random" then
+								x = (mathRandom() - 0.5) * 2 * 999999999
+								y = mathHuge
+								z = (mathRandom() - 0.5) * 2 * 999999999
+							elseif currentPattern == "World Random" then
+								x = (mathRandom() - 0.5) * 2 * 999999999
+								y = (mathRandom() - 0.5) * 2 * 999999999
+								z = (mathRandom() - 0.5) * 2 * 999999999
+							elseif currentPattern == "Static" then
+								x = mathHuge
+								y = mathHuge
+								z = mathHuge
+							elseif currentPattern == "Void Static" then
+								x = -mathHuge
+								y = -mathHuge
+								z = -mathHuge
+							elseif currentPattern == "VoidSpam" then
+								x = (mathRandom() - 0.5) * 2 * 999999999
+								z = (mathRandom() - 0.5) * 2 * 999999999
+								-- // alternate between void and sky every 0.1 sec
+								if voidSpamState then
+									y = -mathHuge -- void
+								else
+									y = mathHuge -- sky
+								end
+								-- // flip state for next iteration
+								voidSpamState = not voidSpamState
+							end
+							
+							-- // move desync to calculated position
+							framework.desync:moveDesyncTo(x, y, z)
 						end
 					end
 				end)
@@ -2505,6 +2538,17 @@ do
 					Library:Notification("Failed to sync desync", 1, color3FromRGB(255, 0, 0))
 				end
 			end
+		end
+	})
+
+	-- // desync pattern dropdown
+	DesyncSection:Dropdown({
+		Name = "Desync Pattern",
+		Default = "Void Random",
+		Items = {"Void Random", "Sky Random", "World Random", "Static", "Void Static", "VoidSpam"},
+		Flag = "Desync_Pattern",
+		Callback = function(value)
+			currentPattern = value
 		end
 	})
 
