@@ -2442,6 +2442,72 @@ do
 		end
 	end)
 
+	-- // desync section
+	local DesyncSection = CombatTab:Section({Name = "Desync", Side = 1})
+	
+	-- // safety sync state
+	local safetySyncEnabled = false
+	local safetySyncConnection = nil
+	local positionLogConnection = nil
+	
+	DesyncSection:Toggle({
+		Name = "SafetySync",
+		Default = false,
+		Flag = "SafetySync_Enabled",
+		Callback = function(value)
+			safetySyncEnabled = value
+			
+			if value then
+				-- // start safety sync
+				safetySyncConnection = taskSpawn(function()
+					while safetySyncEnabled do
+						taskWait(0.1)
+						if localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart") then
+							-- // generate truly random coordinates with huge range
+							local randomX = (mathRandom() - 0.5) * 2 * 999999999
+							local randomZ = (mathRandom() - 0.5) * 2 * 999999999
+							local voidY = -mathHuge
+							
+							-- // move desync to new random position
+							framework.desync:moveDesyncTo(randomX, voidY, randomZ)
+						end
+					end
+				end)
+				
+				-- // start position logging every 3 seconds
+				positionLogConnection = taskSpawn(function()
+					while safetySyncEnabled do
+						taskWait(1)
+						-- // get actual current desync position
+						local actualPos = framework.desync:checkSyncPosition()
+						if actualPos then
+							Library:Notification(string.format("Sync Cords X=%.1f, Y=%.1f, Z=%.1f", actualPos.X, actualPos.Y, actualPos.Z), 2, color3FromRGB(0, 255, 255))
+						end
+					end
+				end)
+			else
+				-- // stop safety sync loops
+				if safetySyncConnection then
+					safetySyncConnection = nil
+				end
+				if positionLogConnection then
+					positionLogConnection = nil
+				end
+				
+				-- // wait a bit for loops to stop
+				taskWait(0.2)
+				
+				-- // sync desync with local player
+				local result = framework.desync:synchronizeSyncWithPlayer()
+				if result then
+					Library:Notification("Desync synchronized with player", 1, color3FromRGB(0, 255, 0))
+				else
+					Library:Notification("Failed to sync desync", 1, color3FromRGB(255, 0, 0))
+				end
+			end
+		end
+	})
+
 	-- // target aimbot toggle and settings
 	local AimSettingsSection = CombatTab:Section({Name = "AimSettings", Side = 2})
 	
