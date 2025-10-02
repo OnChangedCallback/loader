@@ -15,6 +15,7 @@ local instanceNew = Instance.new
 local currentCamera = workspace.CurrentCamera
 local cframe = CFrame.new
 local mathHuge, mathFloor, mathMin, mathMax, mathClamp = math.huge, math.floor, math.min, math.max, math.clamp or function(val, min, max) return math.max(min, math.min(max, val)) end
+local mathCos, mathSin = math.cos, math.sin
 local colorSequenceKeypoint = ColorSequenceKeypoint.new
 local mouse = localPlayer:GetMouse()
 local vector3Zero = vector3New(0, 0, 0)
@@ -110,6 +111,19 @@ aimbotLine.Visible = false
 aimbotLine.Color = Color3.fromRGB(255, 255, 255)
 aimbotLine.Thickness = 1.5
 aimbotLine.Transparency = 1
+
+-- // desync visualization
+local desyncLineOutline = drawingNew("Line")
+desyncLineOutline.Visible = false
+desyncLineOutline.Color = Color3.fromRGB(0, 0, 0)
+desyncLineOutline.Thickness = 4
+desyncLineOutline.Transparency = 1
+
+local desyncLine = drawingNew("Line")
+desyncLine.Visible = false
+desyncLine.Color = Color3.fromRGB(0, 255, 255)
+desyncLine.Thickness = 2
+desyncLine.Transparency = 1
 
 -- // esp framework
 local framework = {}
@@ -884,6 +898,7 @@ do
 		
 		-- // flags settings
 	end
+	
 end
 
 -- // desync framework
@@ -1103,28 +1118,83 @@ do
 	local autobuyConnection = nil
 	local autoArmorActive = false
 	local autoGunsActive = false
+	local autobuyDesyncActive = false
 	
-	-- // auto armor function
+	-- // auto armor function using desync
 	function autobuyFramework:autoArmor()
 		-- // only buy armor if auto armor is enabled
 		if not autoArmorActive then return end
 		
-		if localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart") and localPlayer.Character:FindFirstChild("BodyEffects") then
-			local origin = localPlayer.Character.HumanoidRootPart.CFrame
-			local armor = localPlayer.Character.BodyEffects.Armor
-			
-			if armor.Value <= armorValueToBuy then
+		if localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart") then
+			local s, e = pcall(function()
+				-- // check current armor value
+				local currentArmor = 0
+				local workspacePlayers = workspace:FindFirstChild("Players")
+				if workspacePlayers then
+					local playerFolder = workspacePlayers:FindFirstChild(localPlayer.Name)
+					if playerFolder then
+						local bodyEffects = playerFolder:FindFirstChild("BodyEffects")
+						if bodyEffects then
+							local armorValue = bodyEffects:FindFirstChild("Armor")
+							if armorValue then
+								currentArmor = tonumber(armorValue.Value) or 0
+							end
+						end
+					end
+				end
+				
+				-- // only buy if armor is less than 130 (max armor)
+				if currentArmor >= 130 then
+					return -- // already have max armor
+				end
+				
+				-- // activate autobuy desync mode
+				autobuyDesyncActive = true
+				
+				-- // buy armor until max or money runs out
+				local attempts = 0
 				repeat
-					taskWait()
-					localPlayer.Character.HumanoidRootPart.CFrame = armorShop.Head.CFrame
+					local startArmor = currentArmor
+					
+					-- // move desync to armor shop
+					framework.desync:moveDesyncTo(armorShop.Head.Position.X, armorShop.Head.Position.Y, armorShop.Head.Position.Z)
+					taskWait(0.1) -- // small delay for desync to take effect
 					fireclickdetector(armorShop.ClickDetector)
-				until armor.Value >= 130 or localPlayer.DataFolder.Currency.Value < armorPrice
-				localPlayer.Character.HumanoidRootPart.CFrame = origin
+					taskWait(0.2) -- // wait for purchase to register
+					
+					-- // check new armor value
+					if workspacePlayers then
+						local playerFolder = workspacePlayers:FindFirstChild(localPlayer.Name)
+						if playerFolder then
+							local bodyEffects = playerFolder:FindFirstChild("BodyEffects")
+							if bodyEffects then
+								local armorValue = bodyEffects:FindFirstChild("Armor")
+								if armorValue then
+									currentArmor = tonumber(armorValue.Value) or 0
+								end
+							end
+						end
+					end
+					
+					attempts = attempts + 1
+					
+					-- // break if armor didn't increase (no money) or max armor reached or too many attempts
+				until currentArmor >= 130 or currentArmor <= startArmor or attempts >= 5
+				
+				-- // deactivate autobuy desync mode and sync back to player
+				autobuyDesyncActive = false
+				framework.desync:synchronizeSyncWithPlayer()
+			end)
+			if not s then 
+				warn("[AutoBuy] Armor error:", e)
+				-- // ensure autobuy desync is deactivated even on error
+				autobuyDesyncActive = false
+				framework.desync:synchronizeSyncWithPlayer()
 			end
 		end
 	end
 	
-	-- // auto ammo for specific weapon
+	-- // auto ammo function using desync
 	function autobuyFramework:autoAmmo(weaponName)
 		-- // ensure flag is cleared if function is called while already in progress
 		if ammoBuyingInProgress then
@@ -1147,6 +1217,9 @@ do
 			-- // set flag to prevent multi guns from interfering
 			ammoBuyingInProgress = true
 			
+			-- // activate autobuy desync mode
+			autobuyDesyncActive = true
+			
 			-- // move all tools from character to backpack before buying
 			for _, tool in pairs(localPlayer.Character:GetChildren()) do
 				if tool:IsA("Tool") then
@@ -1154,31 +1227,41 @@ do
 				end
 			end
 			
-			local origin = localPlayer.Character.HumanoidRootPart.CFrame
 			local ammoShop = autobuyUtility:getAmmoShop(ammoName)
 			
 			if ammoShop and ammoShop:FindFirstChild("Head") and ammoShop:FindFirstChild("ClickDetector") then
-				-- // buy ammo 2 times (like armor - constant teleportation)
-				for i = 1, 2 do
+				-- // buy ammo until we have enough or money runs out
+				local attempts = 0
+				local maxAttempts = 10
+				
+				repeat
 					local startAmmo = localPlayer.DataFolder.Inventory:FindFirstChild(weaponName)
 					local startValue = startAmmo and tonumber(startAmmo.Value) or 0
 					
-					repeat
-						taskWait()
-						localPlayer.Character.HumanoidRootPart.CFrame = ammoShop.Head.CFrame
-						fireclickdetector(ammoShop.ClickDetector)
-						
-						local newAmmo = localPlayer.DataFolder.Inventory:FindFirstChild(weaponName)
-						local newValue = newAmmo and tonumber(newAmmo.Value) or 0
-					until newValue > startValue
-				end
-				
-				-- // return to original position
-				localPlayer.Character.HumanoidRootPart.CFrame = origin
+					-- // move desync to ammo shop
+					framework.desync:moveDesyncTo(ammoShop.Head.Position.X, ammoShop.Head.Position.Y, ammoShop.Head.Position.Z)
+					taskWait(0.1) -- // small delay for desync to take effect
+					fireclickdetector(ammoShop.ClickDetector)
+					taskWait(0.2) -- // wait for purchase to register
+					
+					local newAmmo = localPlayer.DataFolder.Inventory:FindFirstChild(weaponName)
+					local newValue = newAmmo and tonumber(newAmmo.Value) or 0
+					
+					attempts = attempts + 1
+					
+					-- // break if we have ammo, no money left, or too many attempts
+					if newValue > 0 or newValue <= startValue or attempts >= maxAttempts then
+						break
+					end
+				until false
 			end
 			
 			-- // clear flag after ammo buying is complete
 			ammoBuyingInProgress = false
+			
+			-- // deactivate autobuy desync mode and sync back to player
+			autobuyDesyncActive = false
+			framework.desync:synchronizeSyncWithPlayer()
 		end
 	end
 	
@@ -1194,22 +1277,42 @@ do
 				-- // check if player already has this weapon
 				if not autobuyUtility:hasWeapon(weaponData.Name) then
 					local s, e = pcall(function()
-						local origin = localPlayer.Character.HumanoidRootPart.CFrame
+						-- // activate autobuy desync mode
+						autobuyDesyncActive = true
+						
 						local weaponShop = autobuyUtility:getWeaponShop(weaponData)
 						
 						if weaponShop and weaponShop:FindFirstChild("Head") and weaponShop:FindFirstChild("ClickDetector") then
-							-- // buy weapon (teleport and click)
-							repeat
-								taskWait()
-								localPlayer.Character.HumanoidRootPart.CFrame = weaponShop.Head.CFrame
-								fireclickdetector(weaponShop.ClickDetector)
-							until autobuyUtility:hasWeapon(weaponData.Name)
+							-- // buy weapon using desync with safety limits
+							local attempts = 0
+							local maxAttempts = 10
 							
-							-- // return to original position
-							localPlayer.Character.HumanoidRootPart.CFrame = origin
+							repeat
+								-- // move desync to weapon shop
+								framework.desync:moveDesyncTo(weaponShop.Head.Position.X, weaponShop.Head.Position.Y, weaponShop.Head.Position.Z)
+								taskWait(0.1) -- // small delay for desync to take effect
+								fireclickdetector(weaponShop.ClickDetector)
+								taskWait(0.2) -- // wait for purchase to register
+								
+								attempts = attempts + 1
+								
+								-- // break if we have weapon or too many attempts
+								if autobuyUtility:hasWeapon(weaponData.Name) or attempts >= maxAttempts then
+									break
+								end
+							until false
 						end
+						
+						-- // deactivate autobuy desync mode and sync back to player
+						autobuyDesyncActive = false
+						framework.desync:synchronizeSyncWithPlayer()
 					end)
-					if not s then warn("[AutoBuy] Weapon buy error:", weaponData.Name, e) end
+					if not s then 
+						warn("[AutoBuy] Weapon buy error:", weaponData.Name, e)
+						-- // ensure autobuy desync is deactivated even on error
+						autobuyDesyncActive = false
+						framework.desync:synchronizeSyncWithPlayer()
+					end
 				end
 				
 				-- // buy ammo for weapon (if ammo = 0)
@@ -1219,6 +1322,9 @@ do
 						warn("[AutoBuy] Ammo buy error:", weaponData.Name, e)
 						-- // ensure flag is cleared in case of error
 						ammoBuyingInProgress = false
+						-- // ensure autobuy desync is deactivated even on ammo error
+						autobuyDesyncActive = false
+						framework.desync:synchronizeSyncWithPlayer()
 					end
 				end
 			end
@@ -1269,6 +1375,11 @@ do
 	function autobuyFramework:setAutoGuns(enabled)
 		autoGunsActive = enabled
 		autobuyFramework:updateAutobuy()
+	end
+	
+	-- // function to check if autobuy desync is active
+	function autobuyFramework:isDesyncActive()
+		return autobuyDesyncActive
 	end
 end
 
@@ -2445,12 +2556,239 @@ do
 	-- // desync section
 	local DesyncSection = CombatTab:Section({Name = "Desync", Side = 1})
 	
-	-- // safety sync state
+	-- // desync state
 	local safetySyncEnabled = false
 	local safetySyncConnection = nil
 	local positionLogConnection = nil
 	local currentPattern = "Void Random"
 	local voidSpamState = true -- true = void, false = sky
+	local targetStrafeEnabled = false
+	local mainDesyncConnection = nil
+	local desyncVisualizationEnabled = false
+	local desyncVisualizationConnection = nil
+	local magicBulletsEnabled = false
+	local originalCameraSubject = nil
+	local buyingInProgress = false
+	local desyncWasPaused = false
+	
+	
+	-- // camera management functions
+	local function setCameraToTarget(target)
+		if target and target.Character and target.Character:FindFirstChild("Humanoid") then
+			if not originalCameraSubject then
+				originalCameraSubject = currentCamera.CameraSubject
+			end
+			currentCamera.CameraSubject = target.Character.Humanoid
+		end
+	end
+	
+	local function restoreCamera()
+		if originalCameraSubject then
+			currentCamera.CameraSubject = originalCameraSubject
+			originalCameraSubject = nil
+		elseif localPlayer.Character and localPlayer.Character:FindFirstChild("Humanoid") then
+			currentCamera.CameraSubject = localPlayer.Character.Humanoid
+		end
+	end
+
+	-- // magic bullets function
+	local function shootRemote(tool, enemy)
+		if enemy and enemy.Character and enemy.Character:FindFirstChild("Head") and enemy.Character:FindFirstChild("HumanoidRootPart") then
+			local handle = tool:FindFirstChild("Handle")
+			if handle then
+				replicatedStorage.MainEvent:FireServer(
+					"ShootGun",
+					handle,
+					handle.CFrame.Position,
+					enemy.Character.HumanoidRootPart.Position,
+					enemy.Character.Head,
+					vector3New(0, 0, -1)
+				)
+			end
+		end
+	end
+	
+	-- // main desync loop function
+	local function startMainDesyncLoop()
+		if mainDesyncConnection then return end
+		
+		mainDesyncConnection = runService.Heartbeat:Connect(function()
+			if not localPlayer.Character or not localPlayer.Character:FindFirstChild("HumanoidRootPart") then
+				return
+			end
+			
+			-- // priority system: autobuy > targetstrafe > safetysync
+			local x, y, z
+			
+			-- // top priority: autobuy desync (armor/guns/ammo)
+			if autobuyFramework:isDesyncActive() then
+				-- // autobuy is handling desync, skip normal desync logic
+				return
+			end
+			
+			-- // second priority: target strafe (if target exists)
+			local shouldUseTargetStrafe = targetStrafeEnabled and targeting.target and targeting.target.Character and targeting.target.Character:FindFirstChild("HumanoidRootPart")
+			
+			if shouldUseTargetStrafe then
+				-- // target strafe mode - random position around target using desync
+				local targetRoot = targeting.target.Character.HumanoidRootPart
+				local randomX = mathRandom(-10, 10)
+				local randomY = mathRandom(-5, 15)
+				local randomZ = mathRandom(-10, 10)
+				
+				-- // calculate desync position around target
+				x = targetRoot.Position.X + randomX
+				y = targetRoot.Position.Y + randomY
+				z = targetRoot.Position.Z + randomZ
+			elseif safetySyncEnabled then
+				-- // void hide patterns
+				if currentPattern == "Void Random" then
+					x = (mathRandom() - 0.5) * 2 * 999999999
+					y = -mathHuge
+					z = (mathRandom() - 0.5) * 2 * 999999999
+				elseif currentPattern == "Sky Random" then
+					x = (mathRandom() - 0.5) * 2 * 999999999
+					y = mathHuge
+					z = (mathRandom() - 0.5) * 2 * 999999999
+				elseif currentPattern == "World Random" then
+					x = (mathRandom() - 0.5) * 2 * 999999999
+					y = (mathRandom() - 0.5) * 2 * 999999999
+					z = (mathRandom() - 0.5) * 2 * 999999999
+				elseif currentPattern == "Static" then
+					x = mathHuge
+					y = mathHuge
+					z = mathHuge
+				elseif currentPattern == "Void Static" then
+					x = -mathHuge
+					y = -mathHuge
+					z = -mathHuge
+				elseif currentPattern == "VoidSpam" then
+					x = (mathRandom() - 0.5) * 2 * 999999999
+					z = (mathRandom() - 0.5) * 2 * 999999999
+					if voidSpamState then
+						y = -mathHuge
+					else
+						y = mathHuge
+					end
+					voidSpamState = not voidSpamState
+				end
+			else
+				-- // sync with player when nothing is active
+				framework.desync:synchronizeSyncWithPlayer()
+				return
+			end
+			
+			-- // move desync to calculated position
+			framework.desync:moveDesyncTo(x, y, z)
+			
+			-- // magic bullets logic
+			if magicBulletsEnabled and targeting.target and targeting.target.Character then
+				-- // update camera to target
+				setCameraToTarget(targeting.target)
+				
+				-- // auto shoot
+				local currentTool = localPlayer.Character and localPlayer.Character:FindFirstChildOfClass("Tool")
+				if currentTool and currentTool:FindFirstChild("Handle") then
+					shootRemote(currentTool, targeting.target)
+				end
+			elseif magicBulletsEnabled then
+				-- // restore camera if no target
+				restoreCamera()
+			end
+		end)
+	end
+	
+	-- // stop main desync loop
+	local function stopMainDesyncLoop()
+		if mainDesyncConnection then
+			mainDesyncConnection:Disconnect()
+			mainDesyncConnection = nil
+		end
+	end
+	
+	-- // pause desync for buying
+	local function pauseDesyncForBuying()
+		if not buyingInProgress then
+			buyingInProgress = true
+			-- // remember if desync was active
+			desyncWasPaused = (safetySyncEnabled or targetStrafeEnabled)
+			
+			if desyncWasPaused then
+				-- // stop desync loop and sync with player
+				stopMainDesyncLoop()
+				framework.desync:synchronizeSyncWithPlayer()
+				Library:Notification("Desync paused for buying", 1, color3FromRGB(255, 165, 0))
+			end
+		end
+	end
+	
+	-- // resume desync after buying
+	local function resumeDesyncAfterBuying()
+		if buyingInProgress then
+			buyingInProgress = false
+			
+			if desyncWasPaused then
+				-- // restart desync if it was active before
+				if safetySyncEnabled or targetStrafeEnabled then
+					startMainDesyncLoop()
+					Library:Notification("Desync resumed after buying", 1, color3FromRGB(0, 255, 0))
+				end
+				desyncWasPaused = false
+			end
+		end
+	end
+	
+	-- // desync visualization function
+	local function startDesyncVisualization()
+		if desyncVisualizationConnection then return end
+		
+		desyncVisualizationConnection = runService.RenderStepped:Connect(function()
+			if not desyncVisualizationEnabled then
+				desyncLineOutline.Visible = false
+				desyncLine.Visible = false
+				return
+			end
+			
+			-- // get current desync position
+			local desyncPos = framework.desync:checkSyncPosition()
+			if not desyncPos then
+				desyncLineOutline.Visible = false
+				desyncLine.Visible = false
+				return
+			end
+			
+			-- // convert desync position to screen coordinates
+			local screenPos, onScreen = currentCamera:WorldToViewportPoint(desyncPos)
+			
+			if onScreen and screenPos.Z > 0 then
+				-- // get screen center
+				local screenCenter = vector2New(currentCamera.ViewportSize.X / 2, currentCamera.ViewportSize.Y / 2)
+				local desyncScreenPos = vector2New(screenPos.X, screenPos.Y)
+				
+				-- // update line positions
+				desyncLineOutline.From = screenCenter
+				desyncLineOutline.To = desyncScreenPos
+				desyncLineOutline.Visible = true
+				
+				desyncLine.From = screenCenter
+				desyncLine.To = desyncScreenPos
+				desyncLine.Visible = true
+			else
+				desyncLineOutline.Visible = false
+				desyncLine.Visible = false
+			end
+		end)
+	end
+	
+	-- // stop desync visualization
+	local function stopDesyncVisualization()
+		if desyncVisualizationConnection then
+			desyncVisualizationConnection:Disconnect()
+			desyncVisualizationConnection = nil
+		end
+		desyncLineOutline.Visible = false
+		desyncLine.Visible = false
+	end
 	
 	DesyncSection:Toggle({
 		Name = "SafetySync",
@@ -2460,58 +2798,13 @@ do
 			safetySyncEnabled = value
 			
 			if value then
-				-- // start safety sync
-				safetySyncConnection = taskSpawn(function()
-					while safetySyncEnabled do
-						taskWait(0.1)
-						if localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart") then
-							local x, y, z
-							
-							-- // generate coordinates based on selected pattern
-							if currentPattern == "Void Random" then
-								x = (mathRandom() - 0.5) * 2 * 999999999
-								y = -mathHuge
-								z = (mathRandom() - 0.5) * 2 * 999999999
-							elseif currentPattern == "Sky Random" then
-								x = (mathRandom() - 0.5) * 2 * 999999999
-								y = mathHuge
-								z = (mathRandom() - 0.5) * 2 * 999999999
-							elseif currentPattern == "World Random" then
-								x = (mathRandom() - 0.5) * 2 * 999999999
-								y = (mathRandom() - 0.5) * 2 * 999999999
-								z = (mathRandom() - 0.5) * 2 * 999999999
-							elseif currentPattern == "Static" then
-								x = mathHuge
-								y = mathHuge
-								z = mathHuge
-							elseif currentPattern == "Void Static" then
-								x = -mathHuge
-								y = -mathHuge
-								z = -mathHuge
-							elseif currentPattern == "VoidSpam" then
-								x = (mathRandom() - 0.5) * 2 * 999999999
-								z = (mathRandom() - 0.5) * 2 * 999999999
-								-- // alternate between void and sky every 0.1 sec
-								if voidSpamState then
-									y = -mathHuge -- void
-								else
-									y = mathHuge -- sky
-								end
-								-- // flip state for next iteration
-								voidSpamState = not voidSpamState
-							end
-							
-							-- // move desync to calculated position
-							framework.desync:moveDesyncTo(x, y, z)
-						end
-					end
-				end)
+				-- // start main desync loop
+				startMainDesyncLoop()
 				
-				-- // start position logging every 3 seconds
+				-- // start position logging
 				positionLogConnection = taskSpawn(function()
 					while safetySyncEnabled do
 						taskWait(1)
-						-- // get actual current desync position
 						local actualPos = framework.desync:checkSyncPosition()
 						if actualPos then
 							Library:Notification(string.format("Sync Cords X=%.1f, Y=%.1f, Z=%.1f", actualPos.X, actualPos.Y, actualPos.Z), 2, color3FromRGB(0, 255, 255))
@@ -2519,23 +2812,16 @@ do
 					end
 				end)
 			else
-				-- // stop safety sync loops
-				if safetySyncConnection then
-					safetySyncConnection = nil
-				end
+				-- // stop position logging
 				if positionLogConnection then
 					positionLogConnection = nil
 				end
 				
-				-- // wait a bit for loops to stop
-				taskWait(0.2)
-				
-				-- // sync desync with local player
-				local result = framework.desync:synchronizeSyncWithPlayer()
-				if result then
+				-- // check if target strafe is still active
+				if not targetStrafeEnabled then
+					stopMainDesyncLoop()
+					framework.desync:synchronizeSyncWithPlayer()
 					Library:Notification("Desync synchronized with player", 1, color3FromRGB(0, 255, 0))
-				else
-					Library:Notification("Failed to sync desync", 1, color3FromRGB(255, 0, 0))
 				end
 			end
 		end
@@ -2549,6 +2835,79 @@ do
 		Flag = "Desync_Pattern",
 		Callback = function(value)
 			currentPattern = value
+		end
+	})
+
+	-- // target strafe toggle
+	DesyncSection:Toggle({
+		Name = "TargetStrafe",
+		Default = false,
+		Flag = "TargetStrafe_Enabled",
+		Callback = function(value)
+			targetStrafeEnabled = value
+			
+			if value then
+				-- // start main desync loop for target strafe
+				startMainDesyncLoop()
+				Library:Notification("TargetStrafe enabled - will circle around ragebot target", 2, color3FromRGB(255, 255, 0))
+			else
+				-- // check if safety sync is still active
+				if not safetySyncEnabled then
+					stopMainDesyncLoop()
+					framework.desync:synchronizeSyncWithPlayer()
+				end
+				Library:Notification("TargetStrafe disabled", 2, color3FromRGB(255, 255, 0))
+			end
+		end
+	})
+
+	-- // desync visualization toggle
+	local desyncVisualizationToggle = DesyncSection:Toggle({
+		Name = "Desync Visualization",
+		Default = false,
+		Flag = "DesyncVisualization_Enabled",
+		Callback = function(value)
+			desyncVisualizationEnabled = value
+			
+			if value then
+				startDesyncVisualization()
+				Library:Notification("Desync visualization enabled", 2, color3FromRGB(0, 255, 255))
+			else
+				stopDesyncVisualization()
+				Library:Notification("Desync visualization disabled", 2, color3FromRGB(255, 255, 0))
+			end
+		end
+	})
+
+	-- // colorpicker for desync line
+	desyncVisualizationToggle:Colorpicker({
+		Name = "Line Color",
+		Default = color3FromRGB(0, 255, 255),
+		Flag = "DesyncVisualization_Color",
+		Callback = function(color)
+			desyncLine.Color = color
+		end
+	})
+
+	-- // magic bullets toggle
+	DesyncSection:Toggle({
+		Name = "MagicBullets",
+		Default = false,
+		Flag = "MagicBullets_Enabled",
+		Callback = function(value)
+			magicBulletsEnabled = value
+			
+			if value then
+				-- // set camera to target if available
+				if targeting.target then
+					setCameraToTarget(targeting.target)
+				end
+				Library:Notification("MagicBullets enabled - will auto shoot at ragebot target", 2, color3FromRGB(255, 0, 255))
+			else
+				-- // restore camera to local player
+				restoreCamera()
+				Library:Notification("MagicBullets disabled", 2, color3FromRGB(255, 255, 0))
+			end
 		end
 	})
 
@@ -2890,4 +3249,9 @@ do
 			end
 		end
 	end
+	
+	-- // esp update loop
+	runService.RenderStepped:Connect(function()
+		framework:updateAllBoxes(Library.Flags)
+	end)
 end
