@@ -886,6 +886,173 @@ do
 	end
 end
 
+-- // desync framework
+do
+	local desyncState = {
+		enabled = false,
+		targetCFrame = nil,
+		realCFrame = nil,
+		hookInstalled = false,
+		followMode = false,
+		heartbeatConn = nil
+	}
+	
+	-- // desync utility
+	local desyncUtility = {}
+	
+	function desyncUtility:validateClient(player)
+		if not player then
+			return false
+		end
+		local character = player.Character
+		if not character then
+			return false
+		end
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if not humanoid or humanoid.Health <= 0 then
+			return false
+		end
+		local rootPart = humanoid.RootPart
+		return rootPart ~= nil
+	end
+	
+	function desyncUtility:getPlayerParts(player)
+		local character = player and player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local rootPart = humanoid and humanoid.RootPart
+		return character, humanoid, rootPart
+	end
+	
+	local function parseCFrame(arg1, arg2, arg3)
+		local argType = typeof(arg1)
+		if argType == "CFrame" then
+			return arg1
+		end
+		if argType == "Vector3" then
+			return cframe(arg1.X, arg1.Y, arg1.Z)
+		end
+		if argType == "table" and arg1[1] and arg1[2] and arg1[3] then
+			return cframe(arg1[1], arg1[2], arg1[3])
+		end
+		if argType == "number" and type(arg2) == "number" and type(arg3) == "number" then
+			return cframe(arg1, arg2, arg3)
+		end
+		return nil
+	end
+	
+	local function installHook()
+		if desyncState.hookInstalled then
+			return
+		end
+		if not hookmetamethod or not newcclosure or not checkcaller then
+			desyncState.hookInstalled = true
+			return
+		end
+		local oldIndex
+		oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
+			if not checkcaller() then
+				if key == "CFrame" and desyncState.enabled then
+					local _, _, rootPart = desyncUtility:getPlayerParts(localPlayer)
+					if rootPart and self == rootPart and desyncState.realCFrame then
+						return desyncState.realCFrame
+					end
+				end
+			end
+			return oldIndex(self, key)
+		end))
+		desyncState.hookInstalled = true
+	end
+	
+	local function startDesyncLoop()
+		if desyncState.heartbeatConn then
+			return
+		end
+		desyncState.heartbeatConn = runService.Heartbeat:Connect(function()
+			if not desyncState.enabled then
+				if desyncState.heartbeatConn then
+					desyncState.heartbeatConn:Disconnect()
+					desyncState.heartbeatConn = nil
+				end
+				return
+			end
+			if not desyncUtility:validateClient(localPlayer) then
+				return
+			end
+			local _, _, rootPart = desyncUtility:getPlayerParts(localPlayer)
+			if not rootPart then
+				return
+			end
+			desyncState.realCFrame = rootPart.CFrame
+			local targetCF
+			if desyncState.followMode then
+				targetCF = rootPart.CFrame
+			else
+				targetCF = desyncState.targetCFrame or desyncState.realCFrame
+			end
+			rootPart.CFrame = targetCF
+			runService.RenderStepped:Wait()
+			rootPart.CFrame = desyncState.realCFrame
+		end)
+	end
+	
+	-- // desync library
+	framework.desync = {}
+	
+	function framework.desync:moveDesyncTo(arg1, arg2, arg3)
+		local targetCF = parseCFrame(arg1, arg2, arg3)
+		if not targetCF then
+			return nil
+		end
+		desyncState.targetCFrame = targetCF
+		desyncState.followMode = false
+		desyncState.enabled = true
+		installHook()
+		startDesyncLoop()
+		return targetCF
+	end
+	
+	function framework.desync:checkSyncPosition()
+		local position
+		if desyncState.targetCFrame then
+			position = desyncState.targetCFrame.Position
+		else
+			local _, _, rootPart = desyncUtility:getPlayerParts(localPlayer)
+			position = rootPart and rootPart.Position or nil
+		end
+		return position
+	end
+	
+	function framework.desync:synchronizeSyncWithPlayer()
+		if not desyncUtility:validateClient(localPlayer) then
+			return nil
+		end
+		desyncState.targetCFrame = nil
+		desyncState.followMode = true
+		desyncState.enabled = true
+		installHook()
+		startDesyncLoop()
+		local _, _, rootPart = desyncUtility:getPlayerParts(localPlayer)
+		return rootPart and rootPart.CFrame or nil
+	end
+	
+	function framework.desync:stopDesync()
+		desyncState.enabled = false
+		desyncState.targetCFrame = nil
+		desyncState.followMode = false
+		
+		if desyncState.heartbeatConn then
+			pcall(function()
+				desyncState.heartbeatConn:Disconnect()
+			end)
+			desyncState.heartbeatConn = nil
+		end
+	end
+	
+	function framework.desync:isEnabled()
+		return desyncState.enabled
+	end
+end
+
 -- // autobuy utility
 local autobuyUtility = {}
 do
