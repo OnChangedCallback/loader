@@ -6,6 +6,7 @@ local httpService = getService(game, "HttpService")
 local players = getService(game, "Players")
 local runService = getService(game, "RunService")
 local workspace = getService(game, "Workspace")
+local replicatedStorage = getService(game, "ReplicatedStorage")
 local localPlayer = players.LocalPlayer
 local osDate, mathRandom = os.date, math.random
 local udim2New, color3FromRGB = UDim2.new, Color3.fromRGB
@@ -15,7 +16,100 @@ local currentCamera = workspace.CurrentCamera
 local cframe = CFrame.new
 local mathHuge, mathFloor, mathMin, mathMax, mathClamp = math.huge, math.floor, math.min, math.max, math.clamp or function(val, min, max) return math.max(min, math.min(max, val)) end
 local colorSequenceKeypoint = ColorSequenceKeypoint.new
+local mouse = localPlayer:GetMouse()
+local vector3Zero = vector3New(0, 0, 0)
+local cframeLookAt = CFrame.lookAt
+local raycastParams = RaycastParams.new()
+raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+raycastParams.FilterDescendantsInstances = {localPlayer.Character}
 local taskWait, taskSpawn = task.wait, task.spawn
+
+-- // autobuy variables
+local shop = workspace.Ignored.Shop
+local armorShop = shop["[High-Medium Armor] - $2513"]
+local armorPrice = 2513
+local armorValueToBuy = 120
+
+-- // weapons config
+local weaponsConfig = {
+    {Name = "[Rifle]", ShopName = "[Rifle] - $1694", Enabled = true},
+    {Name = "[LMG]", ShopName = "[LMG] - $4098", Enabled = true},
+    {Name = "[P90]", ShopName = "[P90] - $1093", Enabled = false},
+    {Name = "[Flintlock]", ShopName = "[Flintlock] - $1421", Enabled = false},
+    {Name = "[Revolver]", ShopName = "[Revolver] - $1421", Enabled = false},
+    {Name = "[Double-Barrel SG]", ShopName = "[Double-Barrel SG] - $1475", Enabled = false},
+    {Name = "[AK47]", ShopName = "[AK47] - $2459", Enabled = false},
+    {Name = "[TacticalShotgun]", ShopName = "[TacticalShotgun] - $1912", Enabled = false},
+    {Name = "[SMG]", ShopName = "[SMG] - $820", Enabled = false},
+    {Name = "[AR]", ShopName = "[AR] - $1093", Enabled = false},
+    {Name = "[Silencer]", ShopName = "[Silencer] - $437", Enabled = false},
+    {Name = "[Shotgun]", ShopName = "[Shotgun] - $1366", Enabled = false}
+}
+
+-- // ammo mapping
+local ammoMap = {
+    ["[Rifle]"] = "5 [Rifle Ammo] - $273",
+    ["[LMG]"] = "200 [LMG Ammo] - $328",
+    ["[P90]"] = "120 [P90 Ammo] - $66",
+    ["[Flintlock]"] = "6 [Flintlock Ammo] - $163",
+    ["[Revolver]"] = "12 [Revolver Ammo] - $82",
+    ["[Double-Barrel SG]"] = "18 [Double-Barrel SG Ammo] - $66",
+    ["[AK47]"] = "90 [AK47 Ammo] - $87",
+    ["[TacticalShotgun]"] = "20 [TacticalShotgun Ammo] - $66",
+    ["[SMG]"] = "80 [SMG Ammo] - $66",
+    ["[AR]"] = "100 [AR Ammo] - $82",
+    ["[Silencer]"] = "25 [Silencer Ammo] - $55",
+    ["[Shotgun]"] = "20 [Shotgun Ammo] - $66"
+}
+
+-- // targeting system
+local targeting = {target = nil}
+
+-- // synchronization flag for ammo buying
+local ammoBuyingInProgress = false
+
+-- // spread config
+local spreadConfig = {
+	enabled = false,
+	amount = 0
+}
+
+-- // no spread hook
+local oldMathRandom = nil
+if not oldMathRandom then
+	oldMathRandom = hookfunction(math.random, function(...)
+		local args = {...}
+		if checkcaller() then
+			return oldMathRandom(...)
+		end
+		if (#args == 0) or 
+		   (args[1] == -0.05 and args[2] == 0.05) or 
+		   (args[1] == -0.1) or
+		   (args[1] == -0.05) then
+			if spreadConfig.enabled then
+				local spread = spreadConfig.amount
+				return oldMathRandom(...) * (spread / 100)
+			else
+				return oldMathRandom(...)
+			end
+		end
+		return oldMathRandom(...)
+	end)
+end
+
+-- // drawing api
+local drawingNew = Drawing.new
+local aimbotLineOutline = drawingNew("Line")
+aimbotLineOutline.Visible = false
+aimbotLineOutline.Color = Color3.fromRGB(0, 0, 0)
+aimbotLineOutline.Thickness = 4
+aimbotLineOutline.Transparency = 1
+
+local aimbotLine = drawingNew("Line")
+aimbotLine.Visible = false
+aimbotLine.Color = Color3.fromRGB(255, 255, 255)
+aimbotLine.Thickness = 1.5
+aimbotLine.Transparency = 1
 
 -- // esp framework
 local framework = {}
@@ -792,6 +886,225 @@ do
 	end
 end
 
+-- // autobuy utility
+local autobuyUtility = {}
+do
+	-- // check if player has weapon
+	function autobuyUtility:hasWeapon(weaponName)
+		-- // check in backpack
+		if localPlayer.Backpack:FindFirstChild(weaponName) then
+			return true
+		end
+		
+		-- // check in character
+		local character = localPlayer.Character
+		if character and character:FindFirstChild(weaponName) then
+			return true
+		end
+		
+		return false
+	end
+	
+	-- // get weapon shop object
+	function autobuyUtility:getWeaponShop(weaponData)
+		return shop:FindFirstChild(weaponData.ShopName)
+	end
+	
+	-- // check if player has item (ammo)
+	function autobuyUtility:hasItem(itemName)
+		local function check(container)
+			for _, item in pairs(container:GetChildren()) do
+				if item.Name == itemName then
+					return true
+				end
+			end
+			return false
+		end
+		return check(localPlayer.Backpack) or check(localPlayer.Character)
+	end
+	
+	-- // get ammo shop object
+	function autobuyUtility:getAmmoShop(ammoName)
+		return shop:FindFirstChild(ammoName)
+	end
+end
+
+-- // autobuy framework
+local autobuyFramework = {}
+do
+	-- // autobuy state variables
+	local autobuyConnection = nil
+	local autoArmorActive = false
+	local autoGunsActive = false
+	
+	-- // auto armor function
+	function autobuyFramework:autoArmor()
+		-- // only buy armor if auto armor is enabled
+		if not autoArmorActive then return end
+		
+		if localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart") and localPlayer.Character:FindFirstChild("BodyEffects") then
+			local origin = localPlayer.Character.HumanoidRootPart.CFrame
+			local armor = localPlayer.Character.BodyEffects.Armor
+			
+			if armor.Value <= armorValueToBuy then
+				repeat
+					taskWait()
+					localPlayer.Character.HumanoidRootPart.CFrame = armorShop.Head.CFrame
+					fireclickdetector(armorShop.ClickDetector)
+				until armor.Value >= 130 or localPlayer.DataFolder.Currency.Value < armorPrice
+				localPlayer.Character.HumanoidRootPart.CFrame = origin
+			end
+		end
+	end
+	
+	-- // auto ammo for specific weapon
+	function autobuyFramework:autoAmmo(weaponName)
+		-- // ensure flag is cleared if function is called while already in progress
+		if ammoBuyingInProgress then
+			return
+		end
+		
+		if localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart") then
+			local ammoName = ammoMap[weaponName]
+			if not ammoName then return end
+			
+			-- // check ammo count via DataFolder.Inventory
+			local inventoryItem = localPlayer.DataFolder.Inventory:FindFirstChild(weaponName)
+			local currentAmmo = inventoryItem and tonumber(inventoryItem.Value) or 0
+			
+			-- // buy only if ammo = 0
+			if currentAmmo > 0 then
+				return
+			end
+			
+			-- // set flag to prevent multi guns from interfering
+			ammoBuyingInProgress = true
+			
+			-- // move all tools from character to backpack before buying
+			for _, tool in pairs(localPlayer.Character:GetChildren()) do
+				if tool:IsA("Tool") then
+					tool.Parent = localPlayer.Backpack
+				end
+			end
+			
+			local origin = localPlayer.Character.HumanoidRootPart.CFrame
+			local ammoShop = autobuyUtility:getAmmoShop(ammoName)
+			
+			if ammoShop and ammoShop:FindFirstChild("Head") and ammoShop:FindFirstChild("ClickDetector") then
+				-- // buy ammo 2 times (like armor - constant teleportation)
+				for i = 1, 2 do
+					local startAmmo = localPlayer.DataFolder.Inventory:FindFirstChild(weaponName)
+					local startValue = startAmmo and tonumber(startAmmo.Value) or 0
+					
+					repeat
+						taskWait()
+						localPlayer.Character.HumanoidRootPart.CFrame = ammoShop.Head.CFrame
+						fireclickdetector(ammoShop.ClickDetector)
+						
+						local newAmmo = localPlayer.DataFolder.Inventory:FindFirstChild(weaponName)
+						local newValue = newAmmo and tonumber(newAmmo.Value) or 0
+					until newValue > startValue
+				end
+				
+				-- // return to original position
+				localPlayer.Character.HumanoidRootPart.CFrame = origin
+			end
+			
+			-- // clear flag after ammo buying is complete
+			ammoBuyingInProgress = false
+		end
+	end
+	
+	-- // auto weapons and ammo
+	function autobuyFramework:autoWeaponsAndAmmo()
+		if localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart") then
+			for _, weaponData in ipairs(weaponsConfig) do
+				-- // skip disabled weapons
+				if not weaponData.Enabled then
+					continue
+				end
+				
+				-- // check if player already has this weapon
+				if not autobuyUtility:hasWeapon(weaponData.Name) then
+					local s, e = pcall(function()
+						local origin = localPlayer.Character.HumanoidRootPart.CFrame
+						local weaponShop = autobuyUtility:getWeaponShop(weaponData)
+						
+						if weaponShop and weaponShop:FindFirstChild("Head") and weaponShop:FindFirstChild("ClickDetector") then
+							-- // buy weapon (teleport and click)
+							repeat
+								taskWait()
+								localPlayer.Character.HumanoidRootPart.CFrame = weaponShop.Head.CFrame
+								fireclickdetector(weaponShop.ClickDetector)
+							until autobuyUtility:hasWeapon(weaponData.Name)
+							
+							-- // return to original position
+							localPlayer.Character.HumanoidRootPart.CFrame = origin
+						end
+					end)
+					if not s then warn("[AutoBuy] Weapon buy error:", weaponData.Name, e) end
+				end
+				
+				-- // buy ammo for weapon (if ammo = 0)
+				if autobuyUtility:hasWeapon(weaponData.Name) then
+					local s, e = pcall(autobuyFramework.autoAmmo, autobuyFramework, weaponData.Name)
+					if not s then 
+						warn("[AutoBuy] Ammo buy error:", weaponData.Name, e)
+						-- // ensure flag is cleared in case of error
+						ammoBuyingInProgress = false
+					end
+				end
+			end
+		end
+	end
+	
+	-- // main autobuy loop
+	function autobuyFramework:updateAutobuy()
+		if autoArmorActive or autoGunsActive then
+			if not autobuyConnection then
+				autobuyConnection = taskSpawn(function()
+					while taskWait() do
+						-- // buy armor if enabled
+						if autoArmorActive then
+							local s, e = pcall(autobuyFramework.autoArmor, autobuyFramework)
+							if not s then warn("[AutoBuy] Armor error:", e) end
+						end
+						
+						-- // buy weapons and ammo if enabled
+						if autoGunsActive then
+							-- // check if we should wait for armor
+							local canBuyWeapons = true
+							if autoArmorActive and localPlayer.Character and localPlayer.Character:FindFirstChild("BodyEffects") then
+								local armor = localPlayer.Character.BodyEffects.Armor
+								canBuyWeapons = armor.Value >= 130
+							end
+							
+							if canBuyWeapons then
+								local s2, e2 = pcall(autobuyFramework.autoWeaponsAndAmmo, autobuyFramework)
+								if not s2 then warn("[AutoBuy] weapons/ammo error:", e2) end
+							end
+						end
+					end
+				end)
+			end
+		else
+			if autobuyConnection then
+				autobuyConnection = nil
+			end
+		end
+	end
+	
+	function autobuyFramework:setAutoArmor(enabled)
+		autoArmorActive = enabled
+		autobuyFramework:updateAutobuy()
+	end
+	
+	function autobuyFramework:setAutoGuns(enabled)
+		autoGunsActive = enabled
+		autobuyFramework:updateAutobuy()
+	end
+end
+
 -- // library initialization
 do
 	local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/OnChangedCallback/loader/refs/heads/main/Library"))()
@@ -809,8 +1122,10 @@ do
 
 	Watermark:SetVisibility(false)
 	KeybindList:SetVisibility(false)
+	local CombatTab = Window:Page({Name = "Combat", Columns = 2, Subtabs = false})
     local VisualsTab = Window:Page({Name = "Visuals", Columns = 2, Subtabs = false})
     local SettingsTab = Window:Page({Name = "Settings", Columns = 3, Subtabs = false})
+
 
 	
 	-- // visuals tab funcs and ui
@@ -1592,14 +1907,632 @@ do
 		end
 	end
 	
-	-- // esp connections
+	-- // combat tab funcs and ui
 	do
-		-- // renderstepped update
-		runService.RenderStepped:Connect(function()
-			if Library.Flags["Box_Enabled"] or Library.Flags["Health_Enabled"] or Library.Flags["Armor_Enabled"] or Library.Flags["Flags_Nickname"] or Library.Flags["Flags_DisplayName"] or Library.Flags["Flags_HealthPercent"] or Library.Flags["Flags_ArmorPercent"] then
-				framework:updateAllBoxes(Library.Flags)
+		-- // targeting section
+	local TargetingSection = CombatTab:Section({Name = "Targeting", Side = 1})
+
+	-- // targeting state
+	local targetingEnabled = false
+
+	TargetingSection:Label({Name = "Ragebot selection", Alignment = "Center"}):Keybind({
+		Name = "Target Keybind",
+		Flag = "Target_Keybind",
+		Default = Enum.KeyCode.T,
+		Mode = "Toggle",
+		Callback = function(value)
+			targetingEnabled = value
+
+			if targetingEnabled then
+				-- // enable targeting - select closest player
+				function targeting:getClosestPlayerToCursor(maxDistance)
+					local closestPlayer = nil
+					local closestDistance = maxDistance or math.huge
+					local mousePos = vector2New(mouse.X, mouse.Y)
+
+					for _, player in pairs(players:GetPlayers()) do
+						if player ~= localPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+							local hrp = player.Character.HumanoidRootPart
+							local screenPos, onScreen = currentCamera:WorldToViewportPoint(hrp.Position)
+
+							if onScreen then
+								local distance = (vector2New(screenPos.X, screenPos.Y) - mousePos).Magnitude
+								if distance < closestDistance then
+									closestDistance = distance
+									closestPlayer = player
+								end
+							end
+						end
+					end
+
+					return closestPlayer
+				end
+
+				targeting.target = targeting:getClosestPlayerToCursor(math.huge)
+				if targeting.target then
+					Library:Notification("Selected target: " .. targeting.target.Name, 2, color3FromRGB(0, 255, 0))
+				else
+					Library:Notification("No target found", 2, color3FromRGB(255, 0, 0))
+				end
+			else
+				-- // disable targeting - clear target
+				targeting.target = nil
+				Library:Notification("Targeting disabled", 2, color3FromRGB(255, 255, 0))
+			end
+		end
+	})
+
+	-- // gun section
+	local GunSection = CombatTab:Section({Name = "Gun", Side = 1})
+
+	-- // auto reload toggle
+	local autoReloadConnection = nil
+	local lastReloadCheck = 0
+	GunSection:Toggle({
+		Name = "Auto Reload",
+		Default = false,
+		Flag = "AutoReload_Enabled",
+		Callback = function(value)
+			if value then
+				-- // enable auto reload
+				lastReloadCheck = tick()
+				autoReloadConnection = runService.Heartbeat:Connect(function()
+					local currentTime = tick()
+					if currentTime - lastReloadCheck >= 0.1 then -- // 10 checks per second
+						lastReloadCheck = currentTime
+						local tool = localPlayer.Character and localPlayer.Character:FindFirstChildWhichIsA("Tool")
+						if tool and tool:FindFirstChild("Ammo") and tool.Ammo.Value == 0 then
+							replicatedStorage.MainEvent:FireServer("Reload", tool)
+						end
+					end
+				end)
+			else
+				-- // disable auto reload
+				if autoReloadConnection then
+					autoReloadConnection:Disconnect()
+					autoReloadConnection = nil
+				end
+			end
+		end
+	})
+
+	-- // no recoil toggle
+	local noRecoilEnabled = false
+	local oldNewIndex = nil
+	
+	if not oldNewIndex then
+		oldNewIndex = hookmetamethod(game, "__newindex", function(self, idx, val)
+			if noRecoilEnabled then
+				local callingScript = getcallingscript()
+				if callingScript and tostring(callingScript) == "Framework" then
+					if tostring(self):lower():find("camera") and tostring(idx) == "CFrame" then
+						return
+					end
+				end
+			end
+			return oldNewIndex(self, idx, val)
+		end)
+	end
+	
+	GunSection:Toggle({
+		Name = "No Recoil",
+		Default = false,
+		Flag = "NoRecoil_Enabled",
+		Callback = function(value)
+			noRecoilEnabled = value
+		end
+	})
+
+	-- // no spread toggle
+	GunSection:Toggle({
+		Name = "No Spread",
+		Default = false,
+		Flag = "NoSpread_Enabled",
+		Callback = function(value)
+			spreadConfig.enabled = value
+		end
+	})
+
+	-- // spread amount slider
+	GunSection:Slider({
+		Name = "Spread Amount",
+		Min = 0,
+		Max = 100,
+		Decimal = 1,
+		Default = 0,
+		Suffix = "%",
+		Flag = "Spread_Amount",
+		Callback = function(value)
+			spreadConfig.amount = value
+		end
+	})
+
+	-- // rapid fire toggle
+	local rapidFireEnabled = false
+	local rapidFireOriginal = {}
+	
+	GunSection:Toggle({
+		Name = "Rapid Fire",
+		Default = false,
+		Flag = "RapidFire_Enabled",
+		Callback = function(value)
+			rapidFireEnabled = value
+		end
+	})
+
+	-- // wallbang toggle
+	local wallbangOriginalIgnored = nil
+	GunSection:Toggle({
+		Name = "Wallbang",
+		Default = false,
+		Flag = "Wallbang_Enabled",
+		Callback = function(value)
+			local handler = replicatedStorage:FindFirstChild("MainModule")
+			if handler then
+				local success, module = pcall(function()
+					return require(handler)
+				end)
+				
+				if success and module then
+					if value then
+						-- // enable wallbang - save original and set new ignored
+						if not wallbangOriginalIgnored then
+							wallbangOriginalIgnored = module.Ignored
+						end
+						module.Ignored = {
+							workspace:WaitForChild("Vehicles"),
+							workspace:WaitForChild("MAP"),
+							workspace:WaitForChild("Ignored")
+						}
+					else
+						-- // disable wallbang - restore original
+						if wallbangOriginalIgnored then
+							module.Ignored = wallbangOriginalIgnored
+						end
+					end
+				end
+			end
+		end
+	})
+
+	-- // multi guns toggle
+	local multiGunsState = {
+		enabled = false,
+		equipped_tools = {},
+		tool_added_conn = nil,
+		tool_removed_conn = nil,
+		character = nil,
+		char_added_conn = nil,
+		heartbeat_conn = nil
+	}
+	
+	local allowed_tools = {
+		["[AUG]"] = true,
+		["[Rifle]"] = true,
+		["[LMG]"] = true,
+		["[P90]"] = true,
+		["[Flintlock]"] = true,
+		["[Revolver]"] = true,
+		["[Double-Barrel SG]"] = true,
+		["[AK47]"] = true,
+		["[TacticalShotgun]"] = true,
+		["[SMG]"] = true,
+		["[AR]"] = true,
+		["[Silencer]"] = true,
+		["[Shotgun]"] = true,
+	}
+	
+	local function equipAllWeapons()
+		-- // don't equip weapons while ammo is being bought
+		if ammoBuyingInProgress then
+			return
+		end
+		
+		multiGunsState.equipped_tools = {}
+		
+		local backpack = localPlayer:FindFirstChild("Backpack")
+		if backpack then
+			for _, tool in ipairs(backpack:GetChildren()) do
+				if tool:IsA("Tool") and allowed_tools[tool.Name] then
+					tool.Parent = multiGunsState.character
+				end
+			end
+		end
+		
+		for _, tool in ipairs(multiGunsState.character:GetChildren()) do
+			if tool:IsA("Tool") and allowed_tools[tool.Name] and tool:FindFirstChild("Handle") then
+				table.insert(multiGunsState.equipped_tools, tool)
+			end
+		end
+	end
+	
+	local function onCharacterAdded(new_char)
+		multiGunsState.character = new_char
+		
+		if multiGunsState.tool_added_conn then 
+			multiGunsState.tool_added_conn:Disconnect() 
+		end
+		if multiGunsState.tool_removed_conn then 
+			multiGunsState.tool_removed_conn:Disconnect() 
+		end
+		
+		multiGunsState.tool_added_conn = new_char.ChildAdded:Connect(function(child)
+			if child:IsA("Tool") and allowed_tools[child.Name] and child:FindFirstChild("Handle") then
+				table.insert(multiGunsState.equipped_tools, child)
 			end
 		end)
+		
+		multiGunsState.tool_removed_conn = new_char.ChildRemoved:Connect(function(child)
+			if child:IsA("Tool") then
+				for i, tool in ipairs(multiGunsState.equipped_tools) do
+					if tool == child then
+						table.remove(multiGunsState.equipped_tools, i)
+						break
+					end
+				end
+			end
+		end)
+		
+		if multiGunsState.enabled then
+			equipAllWeapons()
+		end
+	end
+	
+	GunSection:Toggle({
+		Name = "Multi Guns",
+		Default = false,
+		Flag = "MultiGuns_Enabled",
+		Callback = function(value)
+			if value then
+				-- // enable multi guns
+				multiGunsState.enabled = true
+				multiGunsState.character = localPlayer.Character
+				
+				if multiGunsState.character then
+					onCharacterAdded(multiGunsState.character)
+				end
+				
+				-- // character added connection
+				if not multiGunsState.char_added_conn then
+					multiGunsState.char_added_conn = localPlayer.CharacterAdded:Connect(function(new_char)
+						onCharacterAdded(new_char)
+					end)
+				end
+				
+				-- // heartbeat connection
+				multiGunsState.heartbeat_conn = runService.Heartbeat:Connect(function()
+					if not multiGunsState.enabled then return end
+					if not multiGunsState.character then return end
+					
+					equipAllWeapons()
+				end)
+			else
+				-- // disable multi guns
+				multiGunsState.enabled = false
+				
+				if multiGunsState.heartbeat_conn then
+					multiGunsState.heartbeat_conn:Disconnect()
+					multiGunsState.heartbeat_conn = nil
+				end
+				
+				if multiGunsState.tool_added_conn then
+					multiGunsState.tool_added_conn:Disconnect()
+					multiGunsState.tool_added_conn = nil
+				end
+				
+				if multiGunsState.tool_removed_conn then
+					multiGunsState.tool_removed_conn:Disconnect()
+					multiGunsState.tool_removed_conn = nil
+				end
+				
+				if multiGunsState.char_added_conn then
+					multiGunsState.char_added_conn:Disconnect()
+					multiGunsState.char_added_conn = nil
+				end
+				
+				multiGunsState.equipped_tools = {}
+			end
+		end
+	})
+
+	-- // rapid fire logic
+	runService.RenderStepped:Connect(function()
+		if rapidFireEnabled then
+			local tool = localPlayer.Character and localPlayer.Character:FindFirstChildOfClass("Tool")
+			if tool and tool:FindFirstChild("GunScript") then
+				for _, connection in ipairs(getconnections(tool.Activated)) do
+					local func = connection.Function
+					if func then
+						local funcInfo = debug.getinfo(func)
+						for i = 1, funcInfo.nups do
+							local c, n = debug.getupvalue(func, i)
+							if type(c) == "number" then
+								if not rapidFireOriginal[i] then
+									rapidFireOriginal[i] = c
+								end
+								debug.setupvalue(func, i, 0.00000000000000000001)
+							end
+						end
+					end
+				end
+			end
+		else
+			-- // restore original values when disabled
+			local tool = localPlayer.Character and localPlayer.Character:FindFirstChildOfClass("Tool")
+			if tool and tool:FindFirstChild("GunScript") then
+				for _, connection in ipairs(getconnections(tool.Activated)) do
+					local func = connection.Function
+					if func then
+						local funcInfo = debug.getinfo(func)
+						for i = 1, funcInfo.nups do
+							if rapidFireOriginal[i] then
+								debug.setupvalue(func, i, rapidFireOriginal[i])
+							end
+						end
+					end
+				end
+			end
+		end
+	end)
+
+	-- // target aimbot toggle and settings
+	local AimSettingsSection = CombatTab:Section({Name = "AimSettings", Side = 2})
+	
+	AimSettingsSection:Toggle({
+		Name = "TargetAimbot",
+		Default = false,
+		Flag = "TargetAimbot_Enabled",
+		Callback = function(value)
+			-- // toggle aimbot logic here
+		end
+	})
+
+	-- // prediction settings
+	AimSettingsSection:Textbox({
+		Name = "Prediction X",
+		Default = "0.1",
+		Flag = "TargetAimbot_PredictionX",
+		Callback = function(value)
+			-- // update prediction x
+		end
+	})
+
+	AimSettingsSection:Textbox({
+		Name = "Prediction Y",
+		Default = "0.1",
+		Flag = "TargetAimbot_PredictionY",
+		Callback = function(value)
+			-- // update prediction y
+		end
+	})
+
+	-- // show aimbot line toggle
+	local showAimbotToggle = AimSettingsSection:Toggle({
+		Name = "ShowAimbot",
+		Default = false,
+		Flag = "ShowAimbot_Enabled",
+		Callback = function(value)
+			if not value then
+				aimbotLine.Visible = false
+				aimbotLineOutline.Visible = false
+			end
+		end
+	})
+
+	-- // colorpicker for aimbot line
+	showAimbotToggle:Colorpicker({
+		Name = "Line Color",
+		Default = color3FromRGB(255, 255, 255),
+		Flag = "ShowAimbot_Color",
+		Callback = function(color)
+			aimbotLine.Color = color
+		end
+	})
+
+	-- // aimbot logic
+	do
+		local aimbotSettings = {
+			predictionX = 0.1,
+			predictionY = 0.1,
+			hitpart = "HumanoidRootPart"
+		}
+
+		-- // update prediction values from flags
+		local function updatePredictionValues()
+			aimbotSettings.predictionX = tonumber(Library.Flags["TargetAimbot_PredictionX"]) or 0.1
+			aimbotSettings.predictionY = tonumber(Library.Flags["TargetAimbot_PredictionY"]) or 0.1
+		end
+
+		-- // get predicted position
+		local function getPredictedPosition()
+			if not targeting.target or not targeting.target.Character then return nil end
+			
+			local hrp = targeting.target.Character:FindFirstChild(aimbotSettings.hitpart)
+			if not hrp then return nil end
+
+			updatePredictionValues()
+
+			local targetVelocity = hrp.Velocity
+			local predictedPos = hrp.Position + vector3New(
+				targetVelocity.X * aimbotSettings.predictionX,
+				targetVelocity.Y * aimbotSettings.predictionY,
+				targetVelocity.Z * aimbotSettings.predictionX
+			)
+
+			return predictedPos
+		end
+
+		-- // silent aimbot hook
+		local __aimbot
+		__aimbot = hookmetamethod(game, "__index", function(t, k)
+			if t:IsA("Mouse") and (k == "Hit" or k == "Target") then
+				if not Library.Flags["TargetAimbot_Enabled"] or not targeting.target then
+					return __aimbot(t, k)
+				end
+
+				local targetChar = targeting.target.Character
+				if not targetChar then return __aimbot(t, k) end
+
+				local selPart = targetChar:FindFirstChild(aimbotSettings.hitpart)
+				if selPart then
+					local predictedPos = getPredictedPosition() or selPart.Position
+					local hit = cframe(predictedPos)
+					return k == "Hit" and hit or selPart
+				end
+			end
+			return __aimbot(t, k)
+		end)
+
+		-- // draw aimbot line
+		runService.RenderStepped:Connect(function()
+			if Library.Flags["ShowAimbot_Enabled"] and Library.Flags["TargetAimbot_Enabled"] and targeting.target then
+				local targetChar = targeting.target.Character
+				if targetChar then
+					local selPart = targetChar:FindFirstChild(aimbotSettings.hitpart)
+					if selPart then
+						local predictedPos = getPredictedPosition() or selPart.Position
+						
+						-- // get weapon handle position
+						local weaponHandle = nil
+						if localPlayer.Character then
+							for _, child in pairs(localPlayer.Character:GetChildren()) do
+								if child:IsA("Tool") and child:FindFirstChild("Handle") then
+									weaponHandle = child.Handle
+									break
+								end
+							end
+						end
+
+						if weaponHandle then
+							local handlePos = weaponHandle.Position
+							local handleScreenPos, handleOnScreen = currentCamera:WorldToViewportPoint(handlePos)
+							local targetScreenPos, targetOnScreen = currentCamera:WorldToViewportPoint(predictedPos)
+
+							if handleOnScreen and targetOnScreen then
+								local fromPos = vector2New(handleScreenPos.X, handleScreenPos.Y)
+								local toPos = vector2New(targetScreenPos.X, targetScreenPos.Y)
+								
+								-- // update color from colorpicker
+								if Library.Flags["ShowAimbot_Color"] then
+									aimbotLine.Color = Library.Flags["ShowAimbot_Color"].Color
+								end
+								
+								-- // draw outline first (thicker, black)
+								aimbotLineOutline.From = fromPos
+								aimbotLineOutline.To = toPos
+								aimbotLineOutline.Visible = true
+								
+								-- // draw main line on top (thinner, colored)
+								aimbotLine.From = fromPos
+								aimbotLine.To = toPos
+								aimbotLine.Visible = true
+							else
+								aimbotLine.Visible = false
+								aimbotLineOutline.Visible = false
+							end
+						else
+							aimbotLine.Visible = false
+							aimbotLineOutline.Visible = false
+						end
+					else
+						aimbotLine.Visible = false
+						aimbotLineOutline.Visible = false
+					end
+				else
+					aimbotLine.Visible = false
+					aimbotLineOutline.Visible = false
+				end
+			else
+				aimbotLine.Visible = false
+				aimbotLineOutline.Visible = false
+			end
+		end)
+	end
+
+	-- // loadout section
+	local LoadoutSection = CombatTab:Section({Name = "Loadout", Side = 2})
+	
+	-- // auto armor toggle
+	local autoArmorEnabled = false
+	LoadoutSection:Toggle({
+		Name = "Auto Armor",
+		Default = false,
+		Flag = "AutoArmor_Enabled",
+		Callback = function(value)
+			autoArmorEnabled = value
+			autobuyFramework:setAutoArmor(value)
+		end
+	})
+	
+	-- // armor value to buy slider
+	LoadoutSection:Slider({
+		Name = "Armor Value To Buy",
+		Min = 1,
+		Max = 130,
+		Decimals = 1,
+		Default = 120,
+		Suffix = "",
+		Flag = "ArmorValueToBuy",
+		Callback = function(value)
+			armorValueToBuy = value
+		end
+	})
+	
+	-- // auto buy guns toggle
+	local autoBuyGunsEnabled = false
+	LoadoutSection:Toggle({
+		Name = "Auto Buy Guns",
+		Default = false,
+		Flag = "AutoBuyGuns_Enabled",
+		Callback = function(value)
+			autoBuyGunsEnabled = value
+			autobuyFramework:setAutoGuns(value)
+		end
+	})
+	
+	-- // guns dropdown
+	local selectedWeapons = {}
+	for _, weapon in ipairs(weaponsConfig) do
+		selectedWeapons[weapon.Name] = weapon.Enabled
+	end
+	
+	LoadoutSection:Dropdown({
+		Name = "Select Guns",
+		Default = "Rifle",
+		Items = {"Rifle", "LMG", "P90", "Flintlock", "Revolver", "Double-Barrel SG", "AK47", "TacticalShotgun", "SMG", "AR", "Silencer", "Shotgun"},
+		Multi = true,
+		Flag = "AutoBuy_SelectedWeapons",
+		Callback = function(value)
+			-- // update weapons config based on selection
+			for _, weaponData in ipairs(weaponsConfig) do
+				local weaponKey = weaponData.Name:gsub("%[", ""):gsub("%]", "")
+				weaponData.Enabled = false
+				
+				-- // check if weapon is selected
+				if type(value) == "table" then
+					for _, selectedWeapon in pairs(value) do
+						if weaponKey == selectedWeapon then
+							weaponData.Enabled = true
+							break
+						end
+					end
+				elseif type(value) == "string" and weaponKey == value then
+					weaponData.Enabled = true
+				end
+			end
+		end
+	})
+	
+	-- // auto ammo toggle
+	local autoAmmoEnabled = false
+	LoadoutSection:Toggle({
+		Name = "Auto Ammo",
+		Default = false,
+		Flag = "AutoAmmo_Enabled",
+		Callback = function(value)
+			autoAmmoEnabled = value
+		end
+	})
 		
 		-- // periodic cleanup
 		taskSpawn(function()
