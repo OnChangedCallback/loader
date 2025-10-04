@@ -1,0 +1,1726 @@
+-- // Variables
+local uis = game:GetService("UserInputService")
+local players = game:GetService("Players")
+local ws = game:GetService("Workspace")
+local rs = game:GetService("ReplicatedStorage")
+local http_service = game:GetService("HttpService")
+local gui_service = game:GetService("GuiService")
+local lighting = game:GetService("Lighting")
+local run = game:GetService("RunService")
+local stats = game:GetService("Stats")
+local coregui = game:GetService("CoreGui")
+local debris = game:GetService("Debris")
+local tween_service = game:GetService("TweenService")
+local sound_service = game:GetService("SoundService")
+
+local vec2 = Vector2.new
+local vec3 = Vector3.new
+local dim2 = UDim2.new
+local dim = UDim.new 
+local rect = Rect.new
+local cfr = CFrame.new
+local empty_cfr = cfr()
+local point_object_space = empty_cfr.PointToObjectSpace
+local angle = CFrame.Angles
+local dim_offset = UDim2.fromOffset
+
+local color = Color3.new
+local rgb = Color3.fromRGB
+local hex = Color3.fromHex
+local hsv = Color3.fromHSV
+local rgbseq = ColorSequence.new
+local rgbkey = ColorSequenceKeypoint.new
+local numseq = NumberSequence.new
+local numkey = NumberSequenceKeypoint.new
+
+local camera = ws.CurrentCamera
+local lp = players.LocalPlayer 
+local mouse = lp:GetMouse() 
+local gui_offset = gui_service:GetGuiInset().Y
+
+local max = math.max 
+local floor = math.floor 
+local min = math.min 
+local abs = math.abs 
+local noise = math.noise
+local rad = math.rad 
+local random = math.random 
+local pow = math.pow 
+local sin = math.sin 
+local pi = math.pi 
+local tan = math.tan 
+local atan2 = math.atan2 
+local clamp = math.clamp 
+
+local insert = table.insert 
+local find = table.find 
+local remove = table.remove
+local concat = table.concat
+
+-- // desync variables
+local starter_gui = game:GetService("StarterGui")
+local typeof = typeof
+local task = task
+
+-- // Silent Aimbot Variables
+local drawing_new = Drawing.new
+local hookmetamethod = hookmetamethod
+local newcclosure = newcclosure
+local getnamecallmethod = getnamecallmethod
+local checkcaller = checkcaller
+local game = game
+local enum = Enum
+local instance_new = Instance.new
+local udim2_new = UDim2.new
+local udim2_offset = UDim2.fromOffset
+
+-- // Desync Framework
+do
+    local desync_vars = {
+        Players = players,
+        RunService = run,
+        StarterGui = starter_gui,
+        newcf = cfr,
+        v3 = vec3,
+        typeof = typeof,
+        task = task,
+        math = math,
+        cam = camera,
+        uis = uis
+    }
+
+    local config = {
+        Desync = {
+            Enabled = false,
+            LogInterval = 2
+        }
+    }
+
+    local state = {
+        enabled = false,
+        targetCFrame = nil,
+        realCFrame = nil,
+        hookInstalled = false,
+        logStarted = false,
+        followMode = false,
+        viz_enabled = false,
+        viz_part = nil,
+        viz_line = nil,
+        viz_conn = nil,
+        heartbeatConn = nil
+    }
+
+    local desync_utility = {}
+
+    function desync_utility:ValidateClient(player)
+        if not player then
+            return false
+        end
+        local character = player.Character
+        if not character then
+            return false
+        end
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if not humanoid or humanoid.Health <= 0 then
+            return false
+        end
+        local rootPart = humanoid.RootPart
+        return rootPart ~= nil
+    end
+
+    function desync_utility:getPlayerParts(player)
+        local character = player and player.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local rootPart = humanoid and humanoid.RootPart
+        return character, humanoid, rootPart
+    end
+
+    local function parseCFrame(arg1, arg2, arg3)
+        local argType = desync_vars.typeof(arg1)
+        if argType == "CFrame" then
+            return arg1
+        end
+        if argType == "Vector3" then
+            return desync_vars.newcf(arg1)
+        end
+        if argType == "table" and arg1[1] and arg1[2] and arg1[3] then
+            return desync_vars.newcf(arg1[1], arg1[2], arg1[3])
+        end
+        if argType == "number" and type(arg2) == "number" and type(arg3) == "number" then
+            return desync_vars.newcf(arg1, arg2, arg3)
+        end
+        return nil
+    end
+
+    local function installHook()
+        if state.hookInstalled then
+            return
+        end
+        if not hookmetamethod or not newcclosure or not checkcaller then
+            state.hookInstalled = true
+            return
+        end
+        local oldIndex
+        oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
+            if not checkcaller() then
+                if key == "CFrame" and state.enabled then
+                    local _, _, rootPart = desync_utility:getPlayerParts(lp)
+                    if rootPart and self == rootPart and state.realCFrame then
+                        return state.realCFrame
+                    end
+                end
+            end
+            return oldIndex(self, key)
+        end))
+        state.hookInstalled = true
+    end
+
+    local function startDesyncLoop()
+        if state.heartbeatConn then
+            return
+        end
+        state.heartbeatConn = desync_vars.RunService.Heartbeat:Connect(function()
+            -- Проверяем флаги и отключаем цикл если не нужен
+            if not config.Desync.Enabled or not state.enabled then
+                if state.heartbeatConn then
+                    state.heartbeatConn:Disconnect()
+                    state.heartbeatConn = nil
+                end
+                return
+            end
+            if not desync_utility:ValidateClient(lp) then
+                return
+            end
+            local _, _, rootPart = desync_utility:getPlayerParts(lp)
+            if not rootPart then
+                return
+            end
+            state.realCFrame = rootPart.CFrame
+            local targetCF
+            if state.followMode then
+                targetCF = rootPart.CFrame
+            else
+                targetCF = state.targetCFrame or state.realCFrame
+            end
+            rootPart.CFrame = targetCF
+            desync_vars.RunService.RenderStepped:Wait()
+            rootPart.CFrame = state.realCFrame
+        end)
+    end
+
+    -- // desync library
+    local DesyncLibrary = {}
+    
+    -- Перемещает десинк в указанную позицию
+    function DesyncLibrary.movedesyncto(arg1, arg2, arg3)
+        local targetCF = parseCFrame(arg1, arg2, arg3)
+        if not targetCF then
+            error("movedesyncto: invalid coordinates")
+        end
+        state.targetCFrame = targetCF
+        state.followMode = false
+        config.Desync.Enabled = true
+        state.enabled = true
+        installHook()
+        startDesyncLoop()
+        return targetCF
+    end
+
+    -- Проверяет текущую позицию десинка
+    function DesyncLibrary.checksyncposition()
+        local position
+        if state.targetCFrame then
+            position = state.targetCFrame.Position
+        else
+            local _, _, rootPart = desync_utility:getPlayerParts(lp)
+            position = rootPart and rootPart.Position or nil
+        end
+        return position
+    end
+
+    -- Синхронизирует десинк с игроком (возвращает к нормальной позиции)
+    function DesyncLibrary.SynchronizeSyncWithPlayer()
+        -- Безопасная проверка без ошибки
+        if not desync_utility:ValidateClient(lp) then
+            return nil -- Просто возвращаем nil вместо ошибки
+        end
+        state.targetCFrame = nil
+        state.followMode = true
+        config.Desync.Enabled = true
+        state.enabled = true
+        installHook()
+        startDesyncLoop()
+        local _, _, rootPart = desync_utility:getPlayerParts(lp)
+        return rootPart and rootPart.CFrame or nil
+    end
+
+    -- Полностью останавливает десинк
+    function DesyncLibrary.StopDesync()
+        config.Desync.Enabled = false
+        state.enabled = false
+        state.targetCFrame = nil
+        state.followMode = false
+        
+        if state.heartbeatConn then
+            pcall(function()
+                state.heartbeatConn:Disconnect()
+            end)
+            state.heartbeatConn = nil
+        end
+    end
+
+    -- Проверяет включен ли десинк
+    function DesyncLibrary.IsEnabled()
+        return state.enabled
+    end
+    
+    -- Экспорт библиотеки
+    pcall(function()
+        getgenv().DesyncLibrary = DesyncLibrary
+    end)
+    _G.DesyncLibrary = DesyncLibrary
+end
+
+-- // Library
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/OnChangedCallback/Library/refs/heads/main/v5"))()
+
+-- // Utility Functions
+do
+    local utility = {}
+    
+    function utility:predict(targetPart, predictionX, predictionY)
+        if not targetPart then return nil end
+        local velocity = targetPart.Velocity or vec3(0, 0, 0)
+        return targetPart.Position + vec3(
+            velocity.X * predictionX,
+            velocity.Y * predictionY,
+            velocity.Z * predictionX
+        )
+    end
+    
+    function utility:isPlayerKO(player)
+        if not player or not player.Character then return false end
+        
+        -- Проверяем K.O статус через BodyEffects
+        local success, isKO = pcall(function()
+            local playerInWorkspace = workspace.Players:FindFirstChild(player.Name)
+            if playerInWorkspace and playerInWorkspace:FindFirstChild("BodyEffects") then
+                local koEffect = playerInWorkspace.BodyEffects:FindFirstChild("K.O")
+                if koEffect and koEffect:FindFirstChild("Value") then
+                    return koEffect.Value.Value == true
+                end
+            end
+            return false
+        end)
+        
+        if success then
+            return isKO
+        end
+        
+        -- Fallback к проверке здоровья если BodyEffects недоступны
+        local humanoid = player.Character:FindFirstChild("Humanoid")
+        return humanoid and humanoid.Health <= 0
+    end
+    
+    function utility:isPlayerGrabbed(player)
+        if not player or not player.Character then return false end
+        -- Проверяем, схвачен ли игрок
+        local humanoid = player.Character:FindFirstChild("Humanoid")
+        if humanoid then
+            return humanoid.PlatformStand or false
+        end
+        return false
+    end
+    
+    function utility:hasForceField(player)
+        if not player or not player.Character then return false end
+        return player.Character:FindFirstChildOfClass("ForceField") ~= nil
+    end
+    
+    function utility:hasWallBetween(fromPosition, toPosition, targetPlayer)
+        if not fromPosition or not toPosition or not targetPlayer then return false end
+        
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+        raycastParams.FilterDescendantsInstances = {targetPlayer.Character, lp.Character}
+        
+        local direction = (toPosition - fromPosition)
+        
+        local raycastResult = workspace:Raycast(fromPosition, direction, raycastParams)
+        return raycastResult ~= nil
+    end
+    
+    function utility:getClosestPlayer(fovRadius, targetPart, useFov, checks, predX, predY)
+        local closestPlayer, closestDistance = nil, math.huge
+        
+        for _, player in ipairs(players:GetPlayers()) do
+            if player ~= lp and player.Character and player.Character:FindFirstChild(targetPart) then
+                -- Проверки цели (только при выборе новой цели)
+                local skipPlayer = false
+                if checks then
+                    if checks.checkKO and utility:isPlayerKO(player) then
+                        skipPlayer = true
+                    elseif checks.checkGrabbed and utility:isPlayerGrabbed(player) then
+                        skipPlayer = true
+                    elseif checks.checkForceField and utility:hasForceField(player) then
+                        skipPlayer = true
+                    elseif checks.checkWall and utility:hasWallBetween(camera.CFrame.Position, player.Character[targetPart].Position, player) then
+                        skipPlayer = true
+                    end
+                end
+                
+                if not skipPlayer then
+                    local part = player.Character[targetPart]
+                    local predictedPosition = utility:predict(part, predX or 0.021111111, predY or 0.0102)
+                    if predictedPosition then
+                        local screenPos, onScreen = camera:WorldToViewportPoint(predictedPosition)
+                        if onScreen then
+                            local mousePos = uis:GetMouseLocation()
+                            local distance = (vec2(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                            
+                            if useFov then
+                                if distance < fovRadius and distance < closestDistance then
+                                    closestPlayer = part
+                                    closestDistance = distance
+                                end
+                            else
+                                if distance < closestDistance then
+                                    closestPlayer = part
+                                    closestDistance = distance
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        return closestPlayer
+    end
+    
+    _G.silentUtility = utility
+end
+
+-- // Window
+local window = library:window({
+    name = "R4ZE", 
+    suffix = ".PUB", 
+    gameInfo = "Raze.pub v3"
+})
+
+-- // Combat Tab
+do
+    local CameraBotTab, SilentBotTab = window:tab({
+        name = "Combat", 
+        icon = "rbxassetid://10734975692",  -- lucide-target
+        tabs = {"CameraBot", "SilentBot"}
+    })
+    
+    -- CameraBot Section
+    do
+        local CameraBotSection = CameraBotTab:column({})
+        local section = CameraBotSection:section({name = "CameraBot", default = false})
+        
+        -- Camera Aimbot Implementation
+        do
+            -- Camera Aimbot Variables
+            local cameraSettings = {
+                enabled = false,
+                stickyTarget = nil,
+                stickyEnabled = false,
+                targetPart = "Head",
+                aimlockType = "Mouse Movement",
+                -- Prediction settings
+                predictionEnabled = false,
+                customPredictionX = 0.021111111,
+                customPredictionY = 0.0102,
+                -- Resolver settings
+                resolverEnabled = false,
+                resolverMode = "Velocity",
+                -- Checks settings
+                checksEnabled = false,
+                checkKO = false,
+                checkGrabbed = false,
+                checkForceField = false,
+                checkWall = false
+            }
+            
+            -- Helper Functions
+            local function MouseMover(X, Y)
+                mousemoverel(X, Y)    
+            end
+            
+            local function getCameraTarget()
+                if cameraSettings.stickyEnabled then
+                    if cameraSettings.stickyTarget and cameraSettings.stickyTarget.Parent then
+                        return cameraSettings.stickyTarget
+                    else
+                        -- Захватываем новую цель если sticky включен
+                        local checks = cameraSettings.checksEnabled and {
+                            checkKO = cameraSettings.checkKO,
+                            checkGrabbed = cameraSettings.checkGrabbed,
+                            checkForceField = cameraSettings.checkForceField,
+                            checkWall = cameraSettings.checkWall
+                        } or nil
+                        local predX = cameraSettings.predictionEnabled and cameraSettings.customPredictionX or 0
+                        local predY = cameraSettings.predictionEnabled and cameraSettings.customPredictionY or 0
+                        cameraSettings.stickyTarget = _G.silentUtility:getClosestPlayer(math.huge, cameraSettings.targetPart, false, checks, predX, predY)
+                        return cameraSettings.stickyTarget
+                    end
+                else
+                    cameraSettings.stickyTarget = nil
+                    return nil
+                end
+            end
+            
+            -- Main Camera Aimbot Toggle
+            local mainToggle = section:toggle({
+                name = "Camera Aimbot", 
+                flag = "camera_enabled",
+                type = "toggle",
+                callback = function(bool)
+                    cameraSettings.enabled = bool
+                    if not bool then
+                        cameraSettings.stickyTarget = nil
+                    end
+                end,
+                seperator = true
+            })
+            
+            -- Sticky Target Keybind  
+            section:keybind({
+                name = "Sticky Target",
+                flag = "camera_sticky_key", 
+                key = enum.KeyCode.T,
+                mode = "Toggle",
+                default = false,
+                callback = function(active)
+                    cameraSettings.stickyEnabled = active
+                end,
+                seperator = true
+            })
+            
+            -- Aimlock Type Dropdown
+            section:dropdown({
+                name = "Aimlock Type",
+                flag = "camera_aimlock_type",
+                items = {
+                    "Mouse Movement",
+                    "MoveCenterOfScreen"
+                },
+                default = "Mouse Movement",
+                callback = function(selected)
+                    cameraSettings.aimlockType = selected
+                end,
+                seperator = true
+            })
+            
+            -- Prediction Toggle
+            local predictionToggle = section:toggle({
+                name = "Prediction", 
+                flag = "camera_prediction_enabled",
+                type = "checkbox",
+                callback = function(bool)
+                    cameraSettings.predictionEnabled = bool
+                end,
+                seperator = true
+            })
+            
+            -- Prediction Settings Sub-section
+            local predictionSubSection = predictionToggle:settings({})
+            
+            -- Prediction X Textbox
+            predictionSubSection:textbox({
+                name = "Prediction X",
+                flag = "camera_prediction_x",
+                placeholder = "0.021111111",
+                callback = function(text)
+                    local value = tonumber(text)
+                    if value then
+                        cameraSettings.customPredictionX = value
+                    end
+                end,
+                seperator = true
+            })
+            
+            -- Prediction Y Textbox
+            predictionSubSection:textbox({
+                name = "Prediction Y",
+                flag = "camera_prediction_y",
+                placeholder = "0.0102",
+                callback = function(text)
+                    local value = tonumber(text)
+                    if value then
+                        cameraSettings.customPredictionY = value
+                    end
+                end,
+                seperator = true
+            })
+            
+            -- Resolver Toggle
+            local resolverToggle = section:toggle({
+                name = "Resolver", 
+                flag = "camera_resolver_enabled",
+                type = "checkbox",
+                callback = function(bool)
+                    cameraSettings.resolverEnabled = bool
+                end,
+                seperator = true
+            })
+            
+            -- Resolver Settings Sub-section
+            local resolverSubSection = resolverToggle:settings({})
+            
+            -- Resolver Mode Dropdown
+            resolverSubSection:dropdown({
+                name = "Resolver Mode",
+                flag = "camera_resolver_mode",
+                items = {
+                    "Velocity",
+                    "MoveDirection", 
+                    "CalculateCFrame"
+                },
+                default = "Velocity",
+                callback = function(selected)
+                    cameraSettings.resolverMode = selected
+                end,
+                seperator = true
+            })
+            
+            -- Hitparts Dropdown
+            section:dropdown({
+                name = "Hitparts",
+                flag = "camera_hitparts",
+                items = {
+                    "Head",
+                    "UpperTorso", 
+                    "LowerTorso",
+                    "LeftUpperArm",
+                    "LeftLowerArm",
+                    "LeftHand",
+                    "RightUpperArm",
+                    "RightLowerArm", 
+                    "RightHand",
+                    "LeftUpperLeg",
+                    "LeftLowerLeg",
+                    "LeftFoot",
+                    "RightUpperLeg",
+                    "RightLowerLeg",
+                    "RightFoot"
+                },
+                default = "Head",
+                callback = function(selected)
+                    cameraSettings.targetPart = selected
+                end,
+                seperator = true
+            })
+            
+            -- Checks Toggle
+            local checksToggle = section:toggle({
+                name = "Checks", 
+                flag = "camera_checks_enabled",
+                type = "checkbox",
+                callback = function(bool)
+                    cameraSettings.checksEnabled = bool
+                end,
+                seperator = true
+            })
+            
+            -- Checks Settings Sub-section
+            local checksSubSection = checksToggle:settings({})
+            
+            -- KO Check
+            checksSubSection:toggle({
+                name = "Check K.O",
+                flag = "camera_check_ko",
+                type = "checkbox",
+                callback = function(bool)
+                    cameraSettings.checkKO = bool
+                end,
+                seperator = true
+            })
+            
+            -- Grabbed Check
+            checksSubSection:toggle({
+                name = "Check Grabbed",
+                flag = "camera_check_grabbed",
+                type = "checkbox",
+                callback = function(bool)
+                    cameraSettings.checkGrabbed = bool
+                end,
+                seperator = true
+            })
+            
+            -- ForceField Check
+            checksSubSection:toggle({
+                name = "Check ForceField",
+                flag = "camera_check_forcefield",
+                type = "checkbox",
+                callback = function(bool)
+                    cameraSettings.checkForceField = bool
+                end,
+                seperator = true
+            })
+            
+            -- Wall Check
+            checksSubSection:toggle({
+                name = "Check Wall",
+                flag = "camera_check_wall",
+                type = "checkbox",
+                callback = function(bool)
+                    cameraSettings.checkWall = bool
+                end,
+                seperator = true
+            })
+            
+            -- Camera Aimbot Loop
+            run.RenderStepped:Connect(function()
+                if not cameraSettings.enabled then
+                    return
+                end
+                
+                local target = getCameraTarget()
+                if target then
+                    -- Используем prediction если включен
+                    local targetPosition = target.Position
+                    if cameraSettings.predictionEnabled then
+                        local predX = cameraSettings.customPredictionX
+                        local predY = cameraSettings.customPredictionY
+                        targetPosition = _G.silentUtility:predict(target, predX, predY) or target.Position
+                    end
+                    
+                    local screenPos, onScreen = camera:WorldToViewportPoint(targetPosition)
+                    
+                    if onScreen then
+                        if cameraSettings.aimlockType == "Mouse Movement" then
+                            local mousePos = uis:GetMouseLocation()
+                            local deltaX = screenPos.X - mousePos.X
+                            local deltaY = screenPos.Y - mousePos.Y
+                            
+                            -- Перемещаем курсор к цели
+                            MouseMover(deltaX, deltaY)
+                            
+                        elseif cameraSettings.aimlockType == "MoveCenterOfScreen" then
+                            local screenSize = camera.ViewportSize
+                            local centerX = screenSize.X / 2
+                            local centerY = screenSize.Y / 2
+                            
+                            local deltaX = screenPos.X - centerX
+                            local deltaY = screenPos.Y - centerY
+                            
+                            -- Двигаем камеру чтобы цель была в центре экрана
+                            local currentCFrame = camera.CFrame
+                            local lookDirection = (targetPosition - currentCFrame.Position).Unit
+                            camera.CFrame = cfr(currentCFrame.Position, currentCFrame.Position + lookDirection)
+                        end
+                    end
+                end
+            end)
+            
+        end
+    end
+    
+    -- SilentBot Section  
+    do
+        local SilentBotSection = SilentBotTab:column({})
+        local section = SilentBotSection:section({name = "SilentBot", default = false})
+        
+        -- Silent Aimbot Implementation
+        do
+            -- Silent Aimbot Variables
+            local silentSettings = {
+                enabled = false,
+                stickyTarget = nil,
+                fovRadius = 350,
+                targetPart = "Head",
+                useFov = true,
+                showFov = true,
+                fovColor = rgb(0, 169, 255),
+                fovTransparency = 0.5,
+                predictionX = 0.021111111,
+                predictionY = 0.0102,
+                stickyKey = enum.KeyCode.C,
+                -- Visualise settings
+                visualiseEnabled = false,
+                highlightEnabled = false,
+                highlightFillColor = rgb(0, 169, 255),
+                highlightFillTransparency = 0.5,
+                highlightOutlineColor = rgb(0, 169, 255),
+                highlightOutlineTransparency = 0.5,
+                tracerEnabled = false,
+                tracerColor = rgb(0, 169, 255),
+                tracerTransparency = 0.5,
+                -- Checks settings
+                checksEnabled = false,
+                checkKO = false,
+                checkGrabbed = false,
+                checkForceField = false,
+                checkWall = false,
+                -- Prediction settings
+                predictionEnabled = false,
+                customPredictionX = 0.021111111,
+                customPredictionY = 0.0102,
+                -- Resolver settings
+                resolverEnabled = false,
+                resolverMode = "Velocity",
+                -- Sticky settings
+                stickyEnabled = false
+            }
+            
+            -- ScreenGui FOV Circle
+            local screenGui = instance_new("ScreenGui")
+            screenGui.Name = "SilentAimbotFOV"
+            screenGui.Parent = coregui
+            
+            local fovFrame = instance_new("Frame")
+            fovFrame.Name = "FOVCircle"
+            fovFrame.BackgroundTransparency = 1
+            fovFrame.BorderSizePixel = 0
+            fovFrame.Size = udim2_offset(silentSettings.fovRadius * 2, silentSettings.fovRadius * 2)
+            fovFrame.Position = udim2_offset(0, 0)
+            fovFrame.AnchorPoint = vec2(0.5, 0.5)
+            fovFrame.Visible = false
+            fovFrame.Parent = screenGui
+            
+            local fovCircle = instance_new("UIStroke")
+            fovCircle.Thickness = 2
+            fovCircle.Color = silentSettings.fovColor
+            fovCircle.Transparency = silentSettings.fovTransparency
+            fovCircle.Parent = fovFrame
+            
+            local fovCorner = instance_new("UICorner")
+            fovCorner.CornerRadius = dim(0.5, 0)
+            fovCorner.Parent = fovFrame
+            
+            local esp = nil
+            local tracerLine = drawing_new("Line")
+            tracerLine.Thickness = 2
+            tracerLine.Color = silentSettings.tracerColor
+            tracerLine.Transparency = silentSettings.tracerTransparency
+            tracerLine.Visible = false
+            
+            -- Helper Functions
+            local function highlightPlayer(target)
+                if not silentSettings.visualiseEnabled or not silentSettings.highlightEnabled then
+                    return
+                end
+                
+                if esp then esp:Destroy() end
+                esp = instance_new("Highlight")
+                esp.Adornee = target.Parent
+                esp.FillColor = silentSettings.highlightFillColor
+                esp.OutlineColor = silentSettings.highlightOutlineColor
+                esp.FillTransparency = silentSettings.highlightFillTransparency
+                esp.OutlineTransparency = silentSettings.highlightOutlineTransparency
+                esp.Parent = target.Parent
+            end
+            
+            local function updateTracer(targetPosition)
+                if not silentSettings.visualiseEnabled or not silentSettings.tracerEnabled then
+                    tracerLine.Visible = false
+                    return
+                end
+                
+                if targetPosition then
+                    tracerLine.Visible = true
+                    tracerLine.From = uis:GetMouseLocation()
+                    local screenPos, onScreen = camera:WorldToViewportPoint(targetPosition)
+                    if onScreen then
+                        tracerLine.To = vec2(screenPos.X, screenPos.Y)
+                    else
+                        tracerLine.Visible = false
+                    end
+                else
+                    tracerLine.Visible = false
+                end
+            end
+            
+            local function destroyVisuals()
+                if esp then esp:Destroy() end
+                esp = nil
+                tracerLine.Visible = false
+            end
+            
+            local function getTarget()
+                if silentSettings.stickyEnabled then
+                    if silentSettings.stickyTarget and silentSettings.stickyTarget.Parent then
+                        return silentSettings.stickyTarget
+                    else
+                        -- Захватываем новую цель если sticky включен
+                        local checks = silentSettings.checksEnabled and {
+                            checkKO = silentSettings.checkKO,
+                            checkGrabbed = silentSettings.checkGrabbed,
+                            checkForceField = silentSettings.checkForceField,
+                            checkWall = silentSettings.checkWall
+                        } or nil
+                        local predX = silentSettings.predictionEnabled and silentSettings.customPredictionX or silentSettings.predictionX
+                        local predY = silentSettings.predictionEnabled and silentSettings.customPredictionY or silentSettings.predictionY
+                        silentSettings.stickyTarget = _G.silentUtility:getClosestPlayer(silentSettings.fovRadius, silentSettings.targetPart, silentSettings.useFov, checks, predX, predY)
+                        return silentSettings.stickyTarget
+                    end
+                else
+                    silentSettings.stickyTarget = nil
+                    -- Свободный захват цели
+                    local checks = silentSettings.checksEnabled and {
+                        checkKO = silentSettings.checkKO,
+                        checkGrabbed = silentSettings.checkGrabbed,
+                        checkForceField = silentSettings.checkForceField,
+                        checkWall = silentSettings.checkWall
+                    } or nil
+                    local predX = silentSettings.predictionEnabled and silentSettings.customPredictionX or silentSettings.predictionX
+                    local predY = silentSettings.predictionEnabled and silentSettings.customPredictionY or silentSettings.predictionY
+                    return _G.silentUtility:getClosestPlayer(silentSettings.fovRadius, silentSettings.targetPart, silentSettings.useFov, checks, predX, predY)
+                end
+            end
+            
+            -- Main Silent Aimbot Toggle
+            local mainToggle = section:toggle({
+                name = "Silent Aimbot", 
+                flag = "silent_enabled",
+                type = "toggle",
+                callback = function(bool)
+                    silentSettings.enabled = bool
+                    if not bool then
+                        destroyVisuals()
+                        fovFrame.Visible = false
+                    end
+                end,
+                seperator = true
+            })
+            
+            -- Sticky Target Keybind  
+            section:keybind({
+                name = "Sticky Target",
+                flag = "silent_sticky_key", 
+                key = enum.KeyCode.C,
+                mode = "Toggle",
+                default = false,
+                callback = function(active)
+                    silentSettings.stickyEnabled = active
+                end,
+                seperator = true
+            })
+            
+            -- FOV Toggle
+            local fovToggle = section:toggle({
+                name = "FOV", 
+                flag = "silent_fov_enabled",
+                type = "checkbox",
+                callback = function(bool)
+                    silentSettings.useFov = bool
+                end,
+                seperator = true
+            })
+            
+            -- FOV Settings Sub-section
+            local fovSubSection = fovToggle:settings({})
+            
+            fovSubSection:slider({
+                name = "FOV Size", 
+                flag = "silent_fov_size",
+                min = 50, 
+                max = 500, 
+                default = 350, 
+                interval = 1,
+                callback = function(value)
+                    silentSettings.fovRadius = value
+                    fovFrame.Size = udim2_offset(value * 2, value * 2)
+                end,
+                seperator = true
+            })
+            
+            local showFovToggle = fovSubSection:toggle({
+                name = "Show FOV", 
+                flag = "silent_show_fov",
+                type = "checkbox",
+                callback = function(bool)
+                    silentSettings.showFov = bool
+                    if not bool then
+                        fovFrame.Visible = false
+                    end
+                end,
+                seperator = true
+            })
+            
+            showFovToggle:colorpicker({
+                name = "FOV Color",
+                flag = "silent_fov_color",
+                color = rgb(0, 169, 255),
+                alpha = 0.5,
+                callback = function(color, transparency)
+                    silentSettings.fovColor = color
+                    silentSettings.fovTransparency = transparency
+                    fovCircle.Color = color
+                    fovCircle.Transparency = transparency
+                end
+            })
+            
+            -- Visualise Toggle
+            local visualiseToggle = section:toggle({
+                name = "Visualise", 
+                flag = "silent_visualise_enabled",
+                type = "checkbox",
+                callback = function(bool)
+                    silentSettings.visualiseEnabled = bool
+                    if not bool then
+                        destroyVisuals()
+                    end
+                end,
+                seperator = true
+            })
+            
+            -- Visualise Settings Sub-section
+            local visualiseSubSection = visualiseToggle:settings({})
+            
+            -- Highlight Toggle
+            local highlightToggle = visualiseSubSection:toggle({
+                name = "Highlight", 
+                flag = "silent_highlight_enabled",
+                type = "checkbox",
+                callback = function(bool)
+                    silentSettings.highlightEnabled = bool
+                    if not bool and esp then
+                        esp:Destroy()
+                        esp = nil
+                    end
+                end,
+                seperator = true
+            })
+            
+            highlightToggle:colorpicker({
+                name = "Fill Color",
+                flag = "silent_highlight_fill",
+                color = rgb(0, 169, 255),
+                alpha = 0.5,
+                callback = function(color, transparency)
+                    silentSettings.highlightFillColor = color
+                    silentSettings.highlightFillTransparency = transparency
+                    if esp then
+                        esp.FillColor = color
+                        esp.FillTransparency = transparency
+                    end
+                end
+            })
+            
+            highlightToggle:colorpicker({
+                name = "Outline Color",
+                flag = "silent_highlight_outline",
+                color = rgb(0, 169, 255),
+                alpha = 0.5,
+                callback = function(color, transparency)
+                    silentSettings.highlightOutlineColor = color
+                    silentSettings.highlightOutlineTransparency = transparency
+                    if esp then
+                        esp.OutlineColor = color
+                        esp.OutlineTransparency = transparency
+                    end
+                end
+            })
+            
+            -- Tracer Toggle
+            local tracerToggle = visualiseSubSection:toggle({
+                name = "Tracer", 
+                flag = "silent_tracer_enabled",
+                type = "checkbox",
+                callback = function(bool)
+                    silentSettings.tracerEnabled = bool
+                    if not bool then
+                        tracerLine.Visible = false
+                    end
+                end,
+                seperator = true
+            })
+            
+            tracerToggle:colorpicker({
+                name = "Tracer Color",
+                flag = "silent_tracer_color",
+                color = rgb(0, 169, 255),
+                alpha = 0.5,
+                callback = function(color, transparency)
+                    silentSettings.tracerColor = color
+                    -- Для Drawing API: больше fade = меньше прозрачности (инвертируем)
+                    silentSettings.tracerTransparency = 1 - transparency
+                    tracerLine.Color = color
+                    tracerLine.Transparency = 1 - transparency
+                end
+            })
+            
+            -- Aimpart Dropdown
+            section:dropdown({
+                name = "Aimpart",
+                flag = "silent_aimpart",
+                items = {
+                    "Head",
+                    "UpperTorso", 
+                    "LowerTorso",
+                    "LeftUpperArm",
+                    "LeftLowerArm",
+                    "LeftHand",
+                    "RightUpperArm",
+                    "RightLowerArm", 
+                    "RightHand",
+                    "LeftUpperLeg",
+                    "LeftLowerLeg",
+                    "LeftFoot",
+                    "RightUpperLeg",
+                    "RightLowerLeg",
+                    "RightFoot"
+                },
+                default = "Head",
+                callback = function(selected)
+                    silentSettings.targetPart = selected
+                end,
+                seperator = true
+            })
+            
+            
+            -- Checks Toggle
+            local checksToggle = section:toggle({
+                name = "Checks", 
+                flag = "silent_checks_enabled",
+                type = "checkbox",
+                callback = function(bool)
+                    silentSettings.checksEnabled = bool
+                end,
+                seperator = true
+            })
+            
+            -- Checks Settings Sub-section
+            local checksSubSection = checksToggle:settings({})
+            
+            -- KO Check
+            checksSubSection:toggle({
+                name = "Check K.O",
+                flag = "silent_check_ko",
+                type = "checkbox",
+                callback = function(bool)
+                    silentSettings.checkKO = bool
+                end,
+                seperator = true
+            })
+            
+            -- Grabbed Check
+            checksSubSection:toggle({
+                name = "Check Grabbed",
+                flag = "silent_check_grabbed",
+                type = "checkbox",
+                callback = function(bool)
+                    silentSettings.checkGrabbed = bool
+                end,
+                seperator = true
+            })
+            
+            -- ForceField Check
+            checksSubSection:toggle({
+                name = "Check ForceField",
+                flag = "silent_check_forcefield",
+                type = "checkbox",
+                callback = function(bool)
+                    silentSettings.checkForceField = bool
+                end,
+                seperator = true
+            })
+            
+            -- Wall Check
+            checksSubSection:toggle({
+                name = "Check Wall",
+                flag = "silent_check_wall",
+                type = "checkbox",
+                callback = function(bool)
+                    silentSettings.checkWall = bool
+                end,
+                seperator = true
+            })
+            
+            -- Prediction Toggle
+            local predictionToggle = section:toggle({
+                name = "Prediction", 
+                flag = "silent_prediction_enabled",
+                type = "checkbox",
+                callback = function(bool)
+                    silentSettings.predictionEnabled = bool
+                end,
+                seperator = true
+            })
+            
+            -- Prediction Settings Sub-section
+            local predictionSubSection = predictionToggle:settings({})
+            
+            -- Prediction X Textbox
+            predictionSubSection:textbox({
+                name = "Prediction X",
+                flag = "silent_prediction_x",
+                placeholder = "0.021111111",
+                callback = function(text)
+                    local value = tonumber(text)
+                    if value then
+                        silentSettings.customPredictionX = value
+                    end
+                end,
+                seperator = true
+            })
+            
+            -- Prediction Y Textbox
+            predictionSubSection:textbox({
+                name = "Prediction Y",
+                flag = "silent_prediction_y",
+                placeholder = "0.0102",
+                callback = function(text)
+                    local value = tonumber(text)
+                    if value then
+                        silentSettings.customPredictionY = value
+                    end
+                end,
+                seperator = true
+            })
+            
+            -- Resolver Toggle
+            local resolverToggle = section:toggle({
+                name = "Resolver", 
+                flag = "silent_resolver_enabled",
+                type = "checkbox",
+                callback = function(bool)
+                    silentSettings.resolverEnabled = bool
+                end,
+                seperator = true
+            })
+            
+            -- Resolver Settings Sub-section
+            local resolverSubSection = resolverToggle:settings({})
+            
+            -- Resolver Mode Dropdown
+            resolverSubSection:dropdown({
+                name = "Resolver Mode",
+                flag = "silent_resolver_mode",
+                items = {
+                    "Velocity",
+                    "MoveDirection", 
+                    "CalculateCFrame"
+                },
+                default = "Velocity",
+                callback = function(selected)
+                    silentSettings.resolverMode = selected
+                end,
+                seperator = true
+            })
+            
+            -- Main Loop
+            run.RenderStepped:Connect(function()
+                if fovFrame and silentSettings.showFov and silentSettings.useFov then
+                    local mousePos = uis:GetMouseLocation()
+                    fovFrame.Position = udim2_offset(mousePos.X, mousePos.Y - gui_offset)
+                    fovFrame.Visible = true
+                else
+                    fovFrame.Visible = false
+                end
+                
+                if not silentSettings.enabled then
+                    destroyVisuals()
+                    return
+                end
+                
+                local target = getTarget()
+                if target then
+                    local predictedPosition = _G.silentUtility:predict(target, silentSettings.predictionX, silentSettings.predictionY)
+                    if predictedPosition then
+                        highlightPlayer(target)
+                        updateTracer(predictedPosition)
+                    else
+                        destroyVisuals()
+                    end
+                else
+                    destroyVisuals()
+                end
+            end)
+            
+            -- AIMBOT HOOK
+            local __aimbot
+            __aimbot = hookmetamethod(game, "__index", newcclosure(function(t, k)
+                if t:IsA("Mouse") and (k == "Hit" or k == "Target") then
+                    if not (silentSettings.enabled and getTarget()) then
+                        return __aimbot(t, k)
+                    end
+                    
+                    local target = getTarget()
+                    if target then
+                        local predictedPosition = _G.silentUtility:predict(target, silentSettings.predictionX, silentSettings.predictionY)
+                        if predictedPosition then
+                            local hit = cfr(predictedPosition)
+                            return k == "Hit" and hit or target
+                        end
+                    end
+                end
+                return __aimbot(t, k)
+            end))
+            
+        end
+    end
+end
+
+-- // Visuals Tab  
+do
+    local VisualsTab = window:tab({
+        name = "Visuals", 
+        icon = "rbxassetid://10723346959"  -- lucide-eye
+    })
+    
+    -- Visuals Section
+    do
+        local VisualsSection = VisualsTab:column({})
+        local section = VisualsSection:section({name = "Visuals", default = false})
+        
+        -- Placeholder for visual features
+        section:label({text = "Visual features will be added here"})
+    end
+end
+
+-- // Misc Tab
+do
+    local MiscTab, DesyncTab = window:tab({
+        name = "Misc", 
+        icon = "rbxassetid://10734934585",  -- lucide-rocket
+        tabs = {"Main", "Desync"}
+    })
+    
+    -- Misc Section
+    do
+        local MiscSection = MiscTab:column({})
+        local section = MiscSection:section({name = "Misc", default = false})
+        
+        -- Placeholder for misc features
+        section:label({text = "Miscellaneous features will be added here"})
+    end
+    
+    -- Desync Section
+    do
+        local DesyncSection = DesyncTab:column({})
+        local section = DesyncSection:section({name = "Desync", default = false})
+        
+        -- Desync Settings
+        local desyncSettings = {
+            visualiseEnabled = false,
+            visualiseLine = nil
+        }
+        
+        -- Visualise Toggle
+        local visualiseToggle = section:toggle({
+            name = "Visualise", 
+            flag = "desync_visualise_enabled",
+            type = "checkbox",
+            callback = function(bool)
+                desyncSettings.visualiseEnabled = bool
+                if not bool and desyncSettings.visualiseLine then
+                    desyncSettings.visualiseLine.Visible = false
+                end
+            end,
+            seperator = true
+        })
+        
+        -- Создаем линию для визуализации
+        desyncSettings.visualiseLine = drawing_new("Line")
+        desyncSettings.visualiseLine.Thickness = 2
+        desyncSettings.visualiseLine.Color = rgb(0, 169, 255)
+        desyncSettings.visualiseLine.Transparency = 0.8
+        desyncSettings.visualiseLine.Visible = false
+        
+        -- Цвет линии
+        visualiseToggle:colorpicker({
+            name = "Line Color",
+            flag = "desync_line_color",
+            color = rgb(0, 169, 255),
+            alpha = 0.8,
+            callback = function(color, transparency)
+                if desyncSettings.visualiseLine then
+                    desyncSettings.visualiseLine.Color = color
+                    desyncSettings.visualiseLine.Transparency = transparency
+                end
+            end
+        })
+        
+        -- Основной цикл визуализации
+        run.RenderStepped:Connect(function()
+            if not desyncSettings.visualiseEnabled or not desyncSettings.visualiseLine then
+                if desyncSettings.visualiseLine then
+                    desyncSettings.visualiseLine.Visible = false
+                end
+                return
+            end
+            
+            -- Проверяем доступность библиотеки десинка
+            if not _G.DesyncLibrary then
+                desyncSettings.visualiseLine.Visible = false
+                return
+            end
+            
+            -- Получаем актуальные координаты десинка
+            local desyncPosition = _G.DesyncLibrary.checksyncposition()
+            if not desyncPosition then
+                desyncSettings.visualiseLine.Visible = false
+                return
+            end
+            
+            -- Конвертируем в экранные координаты
+            local screenPos, onScreen = camera:WorldToViewportPoint(desyncPosition)
+            if onScreen then
+                -- Центр экрана
+                local screenSize = camera.ViewportSize
+                local centerX = screenSize.X / 2
+                local centerY = screenSize.Y / 2
+                
+                -- Рисуем линию от центра экрана до актуальных координат десинка
+                desyncSettings.visualiseLine.From = vec2(centerX, centerY)
+                desyncSettings.visualiseLine.To = vec2(screenPos.X, screenPos.Y)
+                desyncSettings.visualiseLine.Visible = true
+            else
+                desyncSettings.visualiseLine.Visible = false
+            end
+        end)
+    end
+end
+
+-- // Settings Tab
+do
+    
+    local SettingsTab, ConfigsTab = window:tab({
+        name = "Settings", 
+        icon = "rbxassetid://10734950309",  -- lucide-settings
+        tabs = {"Main", "Configs"}
+    })
+    
+    -- Settings Section
+    do
+        local SettingsSection = SettingsTab:column({})
+        local section = SettingsSection:section({name = "Settings", default = false})
+        
+        -- Set default accent color
+        library:update_theme("accent", rgb(0, 169, 255))
+        
+        -- Menu Keybind
+        section:keybind({
+            name = "Menu Keybind", 
+            key = Enum.KeyCode.RightControl,
+            mode = "Toggle",
+            default = false,
+            callback = function(bool) 
+                window.toggle_menu(bool) 
+            end,
+            info = "Клавиша для открытия/закрытия меню"
+        })
+        
+        -- Game Interaction Buttons
+        section:button({
+            name = "Copy JobId",
+            callback = function()
+                setclipboard(game.JobId)
+                library.notifications:create_notification({
+                    name = "JobId Copied",
+                    info = "JobId copied to clipboard!",
+                    lifetime = 3
+                })
+            end,
+            info = "Copy current server JobId to clipboard"
+        })
+        
+        section:button({
+            name = "Copy GameID",
+            callback = function()
+                setclipboard(game.GameId)
+                library.notifications:create_notification({
+                    name = "GameID Copied",
+                    info = "GameID copied to clipboard!",
+                    lifetime = 3
+                })
+            end,
+            info = "Copy current game ID to clipboard"
+        })
+        
+        section:button({
+            name = "Copy Join Script",
+            callback = function()
+                setclipboard(
+                    'game:GetService("TeleportService"):TeleportToPlaceInstance(' ..
+                        game.PlaceId .. ', "' .. game.JobId .. '", game.Players.LocalPlayer)'
+                )
+                library.notifications:create_notification({
+                    name = "Join Script Copied",
+                    info = "Join script copied to clipboard!",
+                    lifetime = 3
+                })
+            end,
+            info = "Copy teleport script to join this server"
+        })
+        
+        section:button({
+            name = "Rejoin",
+            callback = function()
+                game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, lp)
+            end,
+            info = "Rejoin current server"
+        })
+        
+        section:button({
+            name = "Join New Server",
+            callback = function()
+                local serverData = 
+                    http_service:JSONDecode(
+                    game:HttpGetAsync(
+                        "https://games.roblox.com/v1/games/" ..
+                            game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
+                    )
+                )
+                local validServers = {}
+                for _, server in pairs(serverData.data) do
+                    if server.playing >= library.flags["min_players"] and server.playing <= library.flags["max_players"] then
+                        insert(validServers, server)
+                    end
+                end
+                
+                if #validServers > 0 then
+                    local randomServer = validServers[random(1, #validServers)]
+                    game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, randomServer.id)
+                else
+                    library.notifications:create_notification({
+                        name = "No Servers Found",
+                        info = "No servers found matching player count criteria!",
+                        lifetime = 3
+                    })
+                end
+            end,
+            info = "Join a random server within player count range"
+        })
+        
+        section:slider({
+            name = "Min Players", 
+            flag = "min_players", 
+            min = 0, 
+            max = 40, 
+            default = 1, 
+            interval = 1,
+            info = "Minimum number of players required on server"
+        })
+        
+        section:slider({
+            name = "Max Players", 
+            flag = "max_players", 
+            min = 0, 
+            max = 40, 
+            default = 15, 
+            interval = 1,
+            info = "Maximum number of players allowed on server"
+        })
+        
+        -- Notification Test Button
+        section:button({
+            name = "Notification Test", 
+            callback = function()
+                library.notifications:create_notification({
+                    name = "Test Notification",
+                    info = "This is a test notification with random colors!",
+                    lifetime = 5
+                })
+            end
+        })
+    end
+    
+    -- Configs Section
+    do
+        local ConfigsSection = ConfigsTab:column({})
+        local section = ConfigsSection:section({name = "Configs", default = true})
+        
+        local ConfigName = ""
+        local ConfigSelected = ""
+        
+        -- Config List
+        local configList = section:dropdown({
+            name = "Configs",
+            items = {"Default Config"},
+            callback = function(selected)
+                ConfigSelected = selected
+                print("Config Selected:", selected)
+            end,
+            flag = "config_list"
+        })
+        
+        -- Config Name Input
+        section:textbox({
+            name = "Config Name", 
+            placeholder = "Enter config name...",
+            callback = function(text)
+                ConfigName = text
+            end,
+            flag = "config_name_input"
+        })
+        
+        -- Create Config Button
+        section:button({
+            name = "Create Config", 
+            callback = function()
+                if ConfigName ~= "" then
+                    local configPath = library.directory .. "/configs/" .. ConfigName .. ".cfg"
+                    if not isfile(configPath) then
+                        writefile(configPath, library:get_config())
+                        
+                        -- Обновляем dropdown
+                        local configFiles = {}
+                        for idx, file in listfiles(library.directory .. "/configs") do
+                            local name = file:gsub(library.directory .. "/configs\\", ""):gsub(".cfg", ""):gsub(library.directory .. "\\configs\\", "")
+                            insert(configFiles, name)
+                        end
+                        configList.refresh_options(configFiles)
+                        
+                        library.notifications:create_notification({
+                            name = "Config Created",
+                            info = "Config '" .. ConfigName .. "' created successfully!",
+                            lifetime = 3
+                        })
+                    else
+                        library.notifications:create_notification({
+                            name = "Error",
+                            info = "Config '" .. ConfigName .. "' already exists!",
+                            lifetime = 3
+                        })
+                    end
+                else
+                    library.notifications:create_notification({
+                        name = "Error",
+                        info = "Please enter a config name!",
+                        lifetime = 3
+                    })
+                end
+            end
+        })
+        
+        -- Load Config Button
+        section:button({
+            name = "Load Config", 
+            callback = function()
+                if ConfigSelected ~= "" then
+                    local configPath = library.directory .. "/configs/" .. ConfigSelected .. ".cfg"
+                    if isfile(configPath) then
+                        library:load_config(readfile(configPath))
+                        library.notifications:create_notification({
+                            name = "Config Loaded",
+                            info = "Config '" .. ConfigSelected .. "' loaded successfully!",
+                            lifetime = 3
+                        })
+                    else
+                        library.notifications:create_notification({
+                            name = "Error",
+                            info = "Config file not found!",
+                            lifetime = 3
+                        })
+                    end
+                else
+                    library.notifications:create_notification({
+                        name = "Error",
+                        info = "Please select a config to load!",
+                        lifetime = 3
+                    })
+                end
+            end
+        })
+        
+        -- Save Config Button
+        section:button({
+            name = "Save Config", 
+            callback = function()
+                if ConfigSelected ~= "" then
+                    local configPath = library.directory .. "/configs/" .. ConfigSelected .. ".cfg"
+                    writefile(configPath, library:get_config())
+                    library.notifications:create_notification({
+                        name = "Config Saved",
+                        info = "Config '" .. ConfigSelected .. "' saved successfully!",
+                        lifetime = 3
+                    })
+                else
+                    library.notifications:create_notification({
+                        name = "Error",
+                        info = "Please select a config to save!",
+                        lifetime = 3
+                    })
+                end
+            end
+        })
+        
+        -- Delete Config Button
+        section:button({
+            name = "Delete Config", 
+            callback = function()
+                if ConfigSelected ~= "" then
+                    local configPath = library.directory .. "/configs/" .. ConfigSelected .. ".cfg"
+                    if isfile(configPath) then
+                        delfile(configPath)
+                        
+                        -- Обновляем dropdown
+                        local configFiles = {}
+                        for idx, file in listfiles(library.directory .. "/configs") do
+                            local name = file:gsub(library.directory .. "/configs\\", ""):gsub(".cfg", ""):gsub(library.directory .. "\\configs\\", "")
+                            insert(configFiles, name)
+                        end
+                        
+                        if #configFiles > 0 then
+                            configList.refresh_options(configFiles)
+                        else
+                            configList.refresh_options({"No configs found"})
+                        end
+                        
+                        library.notifications:create_notification({
+                            name = "Config Deleted",
+                            info = "Config '" .. ConfigSelected .. "' deleted successfully!",
+                            lifetime = 3
+                        })
+                        ConfigSelected = ""
+                    else
+                        library.notifications:create_notification({
+                            name = "Error",
+                            info = "Config file not found!",
+                            lifetime = 3
+                        })
+                    end
+                else
+                    library.notifications:create_notification({
+                        name = "Error",
+                        info = "Please select a config to delete!",
+                        lifetime = 3
+                    })
+                end
+            end
+        })
+        
+        -- Auto refresh function
+        local function refreshConfigList(showNotification)
+            local configFiles = {}
+            for idx, file in listfiles(library.directory .. "/configs") do
+                local name = file:gsub(library.directory .. "/configs\\", ""):gsub(".cfg", ""):gsub(library.directory .. "\\configs\\", "")
+                insert(configFiles, name)
+            end
+            
+            if #configFiles > 0 then
+                configList.refresh_options(configFiles)
+            else
+                configList.refresh_options({"No configs found"})
+            end
+            
+            if showNotification then
+                library.notifications:create_notification({
+                    name = "Configs Refreshed",
+                    info = "Config list updated!",
+                    lifetime = 2
+                })
+            end
+        end
+        
+        -- Auto refresh on startup
+        refreshConfigList(false)
+        
+        -- Refresh Configs Button
+        section:button({
+            name = "Refresh Configs", 
+            callback = function()
+                refreshConfigList(true)
+            end
+        })
+    end
+end
+
+
+library:update_theme("accent", rgb(0, 169, 255))
